@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     fs: { deny: ['**/.env', '**/.env.*', '**/.git/**', '**/server/**', '**/*.sqlite*', '**/owner-setup.json', '**/livekit*.yaml'] },
-    allowedHosts: process.env.PG_CHAT_HOST ? [process.env.PG_CHAT_HOST] : [],
+    // The launcher passes the private Tailscale name in PG_CHAT_HOST. '.ts.net' keeps the
+    // site reachable when Vite was started by hand (npm run dev) without that variable.
+    allowedHosts: [...(process.env.PG_CHAT_HOST ? [process.env.PG_CHAT_HOST] : []), '.ts.net'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3001',

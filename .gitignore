@@ -30,3 +30,7 @@
 .DS_Store
 Thumbs.db
 *.lnk
+
+# Ferramentas baixadas e relatórios de segurança locais
+/.tools/
+/security-reports/

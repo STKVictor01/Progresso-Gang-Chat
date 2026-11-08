@@ -1,8 +1,9 @@
+import { api } from './api';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ClipboardEvent, FormEvent } from 'react';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean };
-type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; attachments?: Attachment[] };
+type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; canDelete: boolean; attachments?: Attachment[] };
 type PendingFile = { id: string; file: File; preview: string };
 const LIMIT = 8 * 1024 * 1024;
 const ACCEPT = ['image/png','image/jpeg','image/gif','image/webp'];
@@ -11,7 +12,7 @@ function ImageAttachment({ attachment, author, reducedMotion, onOpen }: { attach
   const [playing, setPlaying] = useState<boolean | null>(null);
   const animate = playing ?? !reducedMotion;
   const source = attachment.animated && !animate ? attachment.posterUrl || attachment.url : attachment.url;
-  return <figure className="message-attachment"><button className="attachment-open" onClick={() => onOpen(source, attachment)} aria-label={'Ampliar '+(attachment.animated?'GIF':'imagem')+' de '+author}><img src={source} alt={(attachment.animated?'GIF':'Imagem')+' enviado por '+author} width={attachment.width} height={attachment.height} loading="lazy" decoding="async" />{attachment.animated && <span className="gif-badge">GIF</span>}</button>{attachment.animated && <button className="gif-play-toggle" aria-pressed={animate} onClick={() => setPlaying(!animate)}>{animate?'Pausar GIF':'Reproduzir GIF'}</button>}</figure>;
+  return <figure className="message-attachment"><button className="attachment-open" onClick={() => onOpen(source, attachment)} aria-label={'Ampliar '+(attachment.animated?'GIF':'imagem')+' de '+author}><img src={source} alt={(attachment.animated?'GIF enviado por ':'Imagem enviada por ')+author} width={attachment.width} height={attachment.height} loading="lazy" decoding="async" />{attachment.animated && <span className="gif-badge">GIF</span>}</button>{attachment.animated && <button className="gif-play-toggle" aria-pressed={animate} onClick={() => setPlaying(!animate)}>{animate?'Pausar GIF':'Reproduzir GIF'}</button>}</figure>;
 }
 async function requestError(response: Response, fallback: string) {
   try { const body = await response.json(); return typeof body.error === 'string' ? body.error : fallback; } catch { return fallback; }
@@ -52,14 +53,14 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
     async function refresh() {
       try {
-        const query = new URLSearchParams({channel}); if (hydrated.current) query.set('after',String(cursor.current));
-        const response = await fetch('/api/messages?'+query, {signal:controller.signal,cache:'no-store'});
+        const query = new URLSearchParams({channel}); if (hydrated.current) query.set('since',String(cursor.current));
+        const response = await api('/api/messages?'+query, {signal:controller.signal,cache:'no-store'});
         if (!response.ok) throw Error('Conversa indisponível');
-        const data = await response.json() as {messages:TextMessage[];hasMore?:boolean};
+        const data = await response.json() as {messages:TextMessage[];hasMore?:boolean;deletedIds?:number[];cursor:number};
         if (controller.signal.aborted) return;
         if (!hydrated.current) setHasMore(Boolean(data.hasMore)); hydrated.current = true;
-        cursor.current = Math.max(cursor.current,...data.messages.map(message => message.id));
-        if(data.messages.length) setMessages(previous => [...new Map([...previous,...data.messages].map(message => [message.id,message])).values()].sort((a,b)=>a.id-b.id));
+        cursor.current = data.cursor;
+        if(data.messages.length || data.deletedIds?.length) setMessages(previous => [...new Map([...previous.filter(message=>!data.deletedIds?.includes(message.id)),...data.messages].map(message => [message.id,message])).values()].sort((a,b)=>a.id-b.id));
         setStatus('Histórico salvo');
       } catch { if (!controller.signal.aborted) setStatus('Sem conexão. Tentando reconectar…'); }
       finally { if (!controller.signal.aborted) timer=setTimeout(refresh,2000); }
@@ -90,14 +91,14 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       for(let index=0;index<files.length;index++){
         const item=files[index];setProgress('Enviando anexo '+(index+1)+' de '+files.length+'…');
         if(!uploaded.current.has(item.id)){
-          const response=await fetch('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});
+          const response=await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});
           if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar o anexo.'));
           uploaded.current.set(item.id,await response.json() as Attachment);
         }
         attachmentIds.push(item.id);
       }
       setProgress('Enviando mensagem…');
-      const response=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
       setMessages(previous=>[...new Map([...previous,sent].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));
@@ -107,18 +108,23 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   }
   async function older() {
     if(!messages.length||loadingOlder)return;setLoadingOlder(true);setError('');const previousHeight=scroller.current?.scrollHeight??0;
-    try{const query=new URLSearchParams({channel,before:String(messages[0].id)});const response=await fetch('/api/messages?'+query);if(!response.ok)throw Error('Histórico indisponível');const data=await response.json() as {messages:TextMessage[];hasMore:boolean};atBottom.current=false;setMessages(previous=>[...new Map([...data.messages,...previous].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));setHasMore(data.hasMore);requestAnimationFrame(()=>{if(scroller.current)scroller.current.scrollTop+=scroller.current.scrollHeight-previousHeight;});}
+    try{const query=new URLSearchParams({channel,before:String(messages[0].id)});const response=await api('/api/messages?'+query);if(!response.ok)throw Error('Histórico indisponível');const data=await response.json() as {messages:TextMessage[];hasMore:boolean};atBottom.current=false;setMessages(previous=>[...new Map([...data.messages,...previous].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));setHasMore(data.hasMore);requestAnimationFrame(()=>{if(scroller.current)scroller.current.scrollTop+=scroller.current.scrollHeight-previousHeight;});}
     catch{setError('Não foi possível carregar mensagens anteriores. Tente novamente.');}finally{setLoadingOlder(false);}
   }
-  return <section className={'public-chat channel-chat '+(compact?'compact-chat':'')} hidden={!visible} aria-label={compact?'Chat da call '+title:'Chat geral'}>
+  async function removeMessage(message:TextMessage) {
+    if(!window.confirm('Excluir esta mensagem e seus anexos? Ela será removida para todos.'))return;
+    try{const response=await api('/api/messages/'+message.id,{method:'DELETE'});if(!response.ok)throw Error(await requestError(response,'Não foi possível excluir.'));setMessages(previous=>previous.filter(item=>item.id!==message.id));}
+    catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível excluir.');}
+  }
+  return <section className={'public-chat channel-chat '+(compact?'compact-chat':'')} hidden={!visible} aria-label={compact?'Chat da call '+title:'Chat '+title}>
     <div className="text-chat-heading">{compact?<div className="call-chat-title"><h2>Chat · {title}</h2><button className="icon-button" onClick={onClose} aria-label="Fechar chat da call">×</button></div>:<><span className="eyebrow">O PONTO DE ENCONTRO DA GANG</span><h1>O salve é pra todo mundo.</h1></>}<p>{compact?'Conversa deste canal, separada do #geral.':'Texto, imagens e GIFs. O papo continua com ou sem voz.'}</p></div>
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map(message=><article key={message.id} className="public-message"><span className="member-avatar" aria-hidden="true">{message.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=><ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>)}</div>}</div></article>)}<div ref={bottom}/>
+      {messages.map(message=><article key={message.id} className="public-message"><span className="member-avatar" aria-hidden="true">{message.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<button className="message-delete" onClick={()=>void removeMessage(message)} aria-label={'Excluir mensagem de '+message.name}>Excluir</button>}</header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=><ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>)}</div>}</div></article>)}<div ref={bottom}/>
     </div>
     <div className="public-compose"><p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}><img src={item.preview} alt={'Prévia de '+item.file.name}/><span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
-      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para #geral'}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no #geral…'} rows={compact?2:2} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
+      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:2} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
       <div className="compose-extras"><input ref={fileInput} type="file" accept={ACCEPT.join(',')} multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label={compact?'Anexar imagem ou GIF na call':'Anexar imagem ou GIF'}><ClipIcon/>Imagem / GIF</button><small>Até 8 MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>
     <dialog className="image-dialog" ref={dialog} onCancel={()=>setViewer(null)} onClose={()=>setViewer(null)} onClick={event=>{if(event.target===event.currentTarget)setViewer(null);}} aria-label="Imagem ampliada">{viewer&&<><button className="button subtle image-dialog-close" onClick={()=>setViewer(null)}>Fechar imagem</button><img src={viewer.source} alt={viewer.attachment.animated?'GIF ampliado':'Imagem ampliada'}/></>}</dialog>

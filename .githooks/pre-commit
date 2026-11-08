@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ -x '/c/Program Files/nodejs/node.exe' ]; then
+  '/c/Program Files/nodejs/node.exe' scripts/check-secrets.cjs --staged
+else
+  node scripts/check-secrets.cjs --staged
+fi

@@ -376,3 +376,28 @@ input::placeholder { color: #949387; }
 .compact-chat .message-attachment { width:100%; }
 @media(max-width:1100px) { .voice-content-row.call-chat-open > .stage { display:none; } .call-chat-side { width:auto; flex:1; margin:4px 20px 16px; } }
 @media(max-width:767px) { .voice-content-row > .stage { padding:0 16px 16px; } .call-chat-side { margin:0 16px 12px; } .compose-extras { gap:8px; } .compose-extras > small { font-size:9px; } .channel-chat .public-compose .primary { min-width:56px; font-size:12px; } .image-dialog { padding-inline:10px; } .message-attachment { width:100%; } }
+.compact-chat .attachment-open img { max-height:120px; }
+@media(max-width:767px) { .voice-view:has(.voice-content-row.call-chat-open) > .room-heading { display:none; } }
+/* Accounts reuse the community's red, charcoal and paper palette. */
+.account-page{min-height:100dvh;display:grid;grid-template-columns:1fr 1fr;background:var(--surface,#20211c);color:var(--text,#eee8dc)}
+.account-story{padding:clamp(32px,7vw,100px);background:#a72e28;display:flex;flex-direction:column;justify-content:center;gap:24px;overflow:hidden}
+.account-story h1{font-size:clamp(32px,4vw,64px);line-height:1.05;max-width:600px;margin:0}
+.account-story strong{font-family:'Barlow Condensed',sans-serif;font-size:clamp(28px,4vw,56px);line-height:1.1}
+.account-star{font-size:120px;color:#d6c6a3;line-height:1}
+.account-panel{align-self:center;padding:clamp(24px,5vw,72px);width:100%;max-width:620px;margin:auto}
+.account-panel h2{font-size:36px;line-height:1.1;margin:16px 0}.account-panel p{color:#c4bcae;line-height:1.6}
+.account-panel form,.admin-dialog form{display:flex;flex-direction:column;gap:12px;margin-top:24px}
+.account-panel input,.admin-dialog input,.admin-dialog select{width:100%;min-height:46px;background:#141612;border:1px solid #68685d;color:#eee8dc;border-radius:4px;padding:10px 12px;font:inherit}
+.account-panel input[type=checkbox]{width:20px;min-height:20px}.account-panel small{color:#c4bcae;line-height:1.5}.account-panel .primary{margin-top:12px;min-height:48px}
+.account-note{padding-top:20px;border-top:1px solid #55564a;margin-top:24px}.account-loading{min-height:100dvh;display:grid;place-items:center}
+.account-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0}.account-actions .button{min-height:44px;padding:8px;font-size:13px}
+.account-menu{position:relative;margin-left:auto;flex-shrink:0;font-size:14px}.account-menu summary{cursor:pointer;min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid #55564a;border-radius:4px}.account-menu .account-actions{position:absolute;right:0;top:100%;min-width:190px;z-index:50;background:#20211c;border:1px solid #68685d;padding:12px;box-shadow:0 8px 24px #0008}.account-menu .button{width:100%}.page-header{gap:12px}.community-sidebar{overflow-y:auto}
+.account-page{--surface:#191a17;--text:#eee8dc;--red:#c6352c;--muted:#aaa99d;--line:#34352f;--raised:#22231f;font-family:'Barlow','Segoe UI',sans-serif}
+.admin-dialog{background:#20211c;color:#eee8dc;border:1px solid #68685d;border-radius:8px;width:min(720px,calc(100vw - 24px));max-height:90dvh;padding:24px;overflow:auto}
+.admin-dialog::backdrop{background:#000b}.admin-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px}.admin-dialog h2{font-size:28px;margin:0}
+.admin-dialog label{display:flex;flex-direction:column;gap:8px}.admin-dialog p{line-height:1.6;color:#c4bcae}.admin-dialog .button{min-height:44px}
+.admin-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 8px}.admin-tabs [aria-pressed=true]{background:#a72e28;color:#fff}
+.admin-channel-list{display:flex;gap:8px;flex-wrap:wrap}.admin-people{list-style:none;padding:0}.admin-people li{display:flex;flex-wrap:wrap;gap:12px;padding:16px 0;border-top:1px solid #55564a;align-items:center}.admin-people li span{flex-basis:100%;color:#c4bcae}
+.message-delete{margin-left:auto;background:transparent;border:1px solid #68685d;border-radius:4px;color:#eee8dc;padding:8px;min-height:44px;cursor:pointer;font:inherit;font-size:12px}.message-delete:hover{background:#8a2924}.public-message header{flex-wrap:wrap}
+@media(max-width:700px){.account-page{grid-template-columns:1fr}.account-story{padding:24px;gap:12px}.account-story h1{font-size:30px}.account-story strong,.account-star,.account-story small{display:none}.account-panel{padding:24px}.account-panel h2{font-size:30px}.admin-dialog{padding:16px}.admin-dialog>header{align-items:flex-start}.account-actions{padding:4px}.brand span{overflow-wrap:anywhere}}
+@media(max-width:767px){.community-sidebar .channel-navigation{overflow-x:auto;flex-shrink:0;padding-bottom:4px}.community-sidebar .channel{flex:none;white-space:nowrap}.page-header .invite-button{display:none}.page-header .channel-heading{min-width:0}.page-header .channel-heading strong{overflow-wrap:anywhere}.account-menu{font-size:12px}.community-sidebar{max-height:28dvh;overflow:auto;flex-shrink:0}}

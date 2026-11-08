@@ -1,0 +1,19 @@
+title = "Progresso Gang Chat"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "livekit-private-key"
+description = "LiveKit credential accidentally committed"
+regex = '''(?i)LIVEKIT_API_SECRET\s*[:=]\s*["']?([a-zA-Z0-9_+/=-]{20,})'''
+secretGroup = 1
+[[rules.allowlists]]
+description = "Documented placeholder, never an actual credential"
+regexTarget = "secret"
+regexes = ['''^configure_seu_segredo$''']
+
+[[rules]]
+id = "owner-setup-link"
+description = "Private owner setup link"
+regex = '''#setup=([a-zA-Z0-9_-]{40,})'''
+secretGroup = 1

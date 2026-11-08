@@ -63,7 +63,11 @@ async function lock() {
     run(tailscale,['serve','--bg','--https=8443','http://127.0.0.1:7880']);
     await wait(address);
     log('Pronto: '+address); console.log('Progresso Gang - Chat pronto: '+address);
-    if(!background) { const browser=spawn('explorer.exe',[address],{windowsHide:true,detached:true,stdio:'ignore'});browser.unref(); }
+    if(!background) {
+      let destination=address;
+      try { const setup=JSON.parse(fs.readFileSync(path.join(root,'server','data','owner-setup.json'),'utf8')); if(setup.expiresAt>Date.now()) destination+='/#setup='+encodeURIComponent(setup.token); } catch {}
+      const browser=spawn('explorer.exe',[destination],{windowsHide:true,detached:true,stdio:'ignore'});browser.unref();
+    }
   } catch(error) {
     log('ERRO: '+error.message); console.error(error.message); process.exitCode=1;
     if(!background) { const file=path.join(logs,'COMO-ABRIR.txt');fs.writeFileSync(file,'Progresso Gang - Chat\r\n\r\n'+error.message+'\r\n\r\nConfira se o Tailscale esta conectado e tente o atalho novamente.\r\n');const viewer=spawn('notepad.exe',[file],{windowsHide:false,detached:true,stdio:'ignore'});viewer.unref(); }

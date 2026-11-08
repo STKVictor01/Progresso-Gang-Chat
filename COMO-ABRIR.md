@@ -37,3 +37,13 @@ Mantenha este PC acordado para os amigos acessarem. Cada amigo usa o site com se
 - **Reduzir ruidos** liga ou desliga a supressao nativa do navegador para seu microfone, mantendo cancelamento de eco e controle de ganho. A preferencia fica salva neste navegador. O resultado depende do suporte do navegador e do dispositivo; o site informa quando nao consegue confirmar a ativacao.
 - No painel **Audio dos amigos · so para voce**, controle **Voz** e **Transmissao** separadamente. O botao de alto-falante ao lado de um amigo na barra lateral tambem silencia ou reativa a voz dele apenas para voce. Esses controles nao alteram o microfone do amigo nem o audio recebido pelas outras pessoas.
 - O silenciamento individual vale para os participantes dessa conexao. Ele nao e uma moderacao global nem uma configuracao de conta de usuario.
+
+## Imagens, GIFs e conversas das calls
+
+- No #geral ou no chat lateral da call, use **Imagem / GIF**, cole uma imagem ou arraste arquivos para a area de escrita.
+- Cada mensagem aceita ate quatro anexos PNG, JPG, WebP ou GIF, com ate 8 MB por arquivo. Para preservar a animacao, prefira anexar o arquivo .gif.
+- Clique na imagem para ampliar. GIFs podem ser pausados e retomados; a preferencia de reduzir movimentos do navegador e respeitada inicialmente.
+- O botao **Chat da call** abre a conversa do canal de voz em que voce esta. Geral e Jogatina tem historicos diferentes, separados do #geral. Esses historicos continuam salvos depois de sair da chamada.
+- O texto e os anexos ficam no mesmo banco `server/data/chat.sqlite`; o backup da pasta data inclui ambos. As imagens sao verificadas e processadas no servidor antes de serem publicadas.
+- O limite inicial e de 512 MB de anexos armazenados. Atingir esse limite impede novos anexos, mas nao o envio de texto. Anexos enviados mas nao publicados em nenhuma mensagem por mais de 24 horas sao descartados pelo servidor.
+- Ainda nao ha contas de usuario. A rede Tailscale continua controlando o acesso ao site; conversas separadas nao representam permissoes individuais por conta.

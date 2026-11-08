@@ -5,6 +5,8 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 ## Recursos
 
 - Canal de texto **#geral**, independente de chamadas, com historico salvo em SQLite.
+- Conversa lateral propria para cada canal de voz, separada do #geral.
+- Imagens PNG/JPG/WebP e GIFs animados, com pre-visualizacao, ampliacao e pausa de animacao.
 - Dois canais de voz separados: **Geral** e **Jogatina**.
 - Microfone, camera e compartilhamento de tela com audio quando permitido pelo navegador.
 - Conversa de texto enquanto a chamada continua conectada.

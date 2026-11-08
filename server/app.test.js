@@ -3,10 +3,89 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { TokenVerifier } from 'livekit-server-sdk';
-import { createApp } from './app.js';
-const options = { apiKey: 'testkey', apiSecret: 'test-secret-for-isolated-tests-0123456789', serverUrl: 'ws://localhost:7880', logger: false };
+import { createApp as createRawApp } from './app.js';
+const options = { apiKey: 'testkey', apiSecret: randomBytes(32).toString('hex'), serverUrl: 'ws://localhost:7880', logger: false, secureCookies:false, allowedOrigins:['http://localhost:5173'] };
+
+const testPassword=randomBytes(24).toString('base64url');
+async function createApp(options){
+  const token=randomBytes(32).toString('base64url');
+  const app=await createRawApp({...options,ownerSetupToken:token});
+  const inject=app.inject.bind(app);
+  const setup=await inject({method:'POST',url:'/auth/setup',headers:{origin:'http://localhost:5173'},payload:{token,password:testPassword}});
+  const auth=setup.statusCode===200?setup:await inject({method:'POST',url:'/auth/login',headers:{origin:'http://localhost:5173'},payload:{username:'Vitão',password:testPassword}});
+  assert.equal(auth.statusCode,200,auth.body);
+  const cookie=auth.cookies[0].name+'='+auth.cookies[0].value,csrf=auth.json().csrf;
+  app.inject=options=>inject(typeof options==='string'?{url:options,headers:{cookie}}:{...options,headers:{origin:'http://localhost:5173',cookie,'x-csrf-token':csrf,...options.headers}});
+  return app;
+}
+
+test('accounts enforce owner reservation, sessions, CSRF, author ownership and admin permissions',async()=>{
+  const setupToken=randomBytes(32).toString('base64url');
+  const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:setupToken});
+  const origin='http://localhost:5173';
+  const authHeaders=response=>({origin,cookie:response.cookies[0].name+'='+response.cookies[0].value,'x-csrf-token':response.json().csrf});
+  const request=(headers,method,url,payload)=>app.inject({headers,method,url,payload});
+  try{
+    for(const url of ['/messages','/channels','/media/'+randomUUID()])assert.equal((await app.inject(url)).statusCode,401);
+    assert.equal((await request({origin},'POST','/auth/setup',{token:'invalid',password:testPassword})).statusCode,403);
+    assert.equal((await request({origin:'https://other.example'},'POST','/auth/setup',{token:setupToken,password:testPassword})).statusCode,403);
+    const owner=await request({origin},'POST','/auth/setup',{token:setupToken,password:testPassword});assert.equal(owner.statusCode,200,owner.body);
+    assert.equal(owner.json().user.name,'Vitão');assert.equal(owner.json().user.role,'admin');assert.equal(owner.cookies[0].httpOnly,true);assert.equal(owner.cookies[0].sameSite,'Strict');
+    const admin=authHeaders(owner);
+    assert.equal((await request({origin},'POST','/auth/setup',{token:setupToken,password:randomBytes(32).toString('hex')})).statusCode,403);
+    assert.equal((await request({...admin,'x-csrf-token':'wrong'},'POST','/admin/invites',{})).statusCode,403);
+    const invite=()=>request(admin,'POST','/admin/invites',{}).then(r=>r.json().token);
+    const inviteA=await invite();
+    assert.equal((await request({origin},'POST','/auth/register',{token:inviteA,username:'VITÃO',password:testPassword,role:'admin'})).statusCode,409);
+    const memberA=await request({origin},'POST','/auth/register',{token:inviteA,username:'Pessoa A',password:testPassword,role:'admin'});assert.equal(memberA.statusCode,201);assert.equal(memberA.json().user.role,'member');
+    assert.equal((await request({origin},'POST','/auth/register',{token:inviteA,username:'Intruso',password:testPassword})).statusCode,403);
+    const memberB=await request({origin},'POST','/auth/register',{token:await invite(),username:'Pessoa B',password:testPassword});assert.equal(memberB.statusCode,201);
+    const a=authHeaders(memberA),b=authHeaders(memberB);
+    for(const route of ['/admin/invites','/admin/channels'])assert.equal((await request(a,'POST',route,{})).statusCode,403);
+    const first=await request(a,'POST','/messages',{name:'Vitão',text:'minha mensagem',clientId:randomUUID()});assert.equal(first.statusCode,201);assert.equal(first.json().name,'Pessoa A');assert.equal(first.json().canDelete,true);
+    const id=first.json().id;
+    assert.equal((await request(b,'GET','/messages')).json().messages[0].canDelete,false);
+    assert.equal((await request(b,'DELETE','/messages/'+id)).statusCode,403);
+    const cursor=(await request(b,'GET','/messages')).json().cursor;
+    assert.equal((await request(a,'DELETE','/messages/'+id)).statusCode,200);
+    assert.deepEqual((await request(b,'GET','/messages?since='+cursor)).json().deletedIds,[id]);
+    assert.equal((await request(admin,'GET','/messages')).json().messages.length,0);
+    const other=await request(b,'POST','/messages',{text:'admin pode remover',clientId:randomUUID()});assert.equal((await request(admin,'DELETE','/messages/'+other.json().id)).statusCode,200);
+    const {default:sharp}=await import('sharp');const image=await sharp({create:{width:2,height:2,channels:3,background:'red'}}).png().toBuffer();const uploadId=randomUUID();
+    assert.equal((await request({...a,'content-type':'application/octet-stream','x-upload-id':uploadId},'POST','/uploads',image)).statusCode,201);
+    assert.equal((await request(b,'POST','/messages',{text:'roubar anexo',attachmentIds:[uploadId],clientId:randomUUID()})).statusCode,400);
+    const mediaMessage=await request(a,'POST','/messages',{attachmentIds:[uploadId],clientId:randomUUID()});assert.equal(mediaMessage.statusCode,201);
+    assert.equal((await request(b,'GET','/media/'+uploadId)).headers['cache-control'],'no-store');
+    await request(admin,'DELETE','/messages/'+mediaMessage.json().id);assert.equal((await request(a,'GET','/media/'+uploadId)).statusCode,404);
+    const newChannel=await request(admin,'POST','/admin/channels',{kind:'voice',name:'Nova call',hint:'Teste'});assert.equal(newChannel.statusCode,201);
+    const channelId=newChannel.json().id;
+    assert.equal((await request(a,'POST','/token',{room:channelId})).statusCode,200);
+    assert.equal((await request(a,'POST','/messages',{channel:'voice:'+channelId,text:'chat da nova call',clientId:randomUUID()})).statusCode,201);
+    assert.equal((await request(admin,'PATCH','/admin/channels/voice/'+channelId,{name:'Renomeado',hint:'Nova descrição'})).statusCode,200);
+    assert.equal((await request(admin,'PATCH','/admin/site',{name:'Novo nome',tagline:'Novo lema'})).statusCode,200);assert.equal((await app.inject('/site')).json().name,'Novo nome');
+    assert.equal((await request(admin,'PATCH','/admin/users/'+owner.json().user.id,{role:'member',active:false})).statusCode,403);
+    assert.equal((await request(admin,'PATCH','/admin/users/'+memberA.json().user.id,{role:'member',active:false})).statusCode,200);assert.equal((await request(a,'GET','/messages')).statusCode,401);
+    assert.equal((await request(b,'POST','/auth/logout',{})).statusCode,200);assert.equal((await request(b,'GET','/messages')).statusCode,401);
+  }finally{await app.close();}
+});
+
+test('password changes revoke other sessions and auth attempts are rate limited',async()=>{
+  const token=randomBytes(32).toString('base64url'),origin='http://localhost:5173';
+  const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:token});
+  try{
+    const setup=await app.inject({method:'POST',url:'/auth/setup',headers:{origin},payload:{token,password:testPassword}});
+    const headers={origin,cookie:'pg_session='+setup.cookies[0].value,'x-csrf-token':setup.json().csrf};
+    const next=randomBytes(24).toString('base64url');
+    const changed=await app.inject({method:'POST',url:'/auth/password',headers,payload:{currentPassword:testPassword,password:next}});assert.equal(changed.statusCode,200);
+    assert.equal((await app.inject({url:'/messages',headers})).statusCode,401);
+    assert.equal((await app.inject({method:'POST',url:'/auth/login',headers:{origin},payload:{username:'Vitão',password:next}})).statusCode,200);
+    let last;for(let i=0;i<9;i++)last=await app.inject({method:'POST',url:'/auth/login',headers:{origin},payload:{username:'ninguém',password:testPassword}});
+    assert.equal(last.statusCode,429);
+  }finally{await app.close();}
+});
+
 test('voice grants isolate the two allowed rooms and reject unknown rooms', async () => {
   const app = await createApp({ ...options, dbPath: ':memory:' });
   try {
@@ -22,7 +101,7 @@ test('voice grants isolate the two allowed rooms and reject unknown rooms', asyn
     }
     assert.notEqual(identities[0], identities[1]);
     assert.equal((await app.inject({ method: 'POST', url: '/token', payload: { name: 'Teste', room: 'desconhecido' } })).statusCode, 400);
-    assert.equal((await app.inject({ method: 'POST', url: '/token', payload: { name: 'a' } })).statusCode, 400);
+    const spoof=await app.inject({method:'POST',url:'/token',payload:{name:'Outra pessoa'}}); assert.equal((await verifier.verify(spoof.json().token)).name,'Vitão');
   } finally { await app.close(); }
 });
 test('text works without a voice token, survives restart, and retries do not duplicate', async () => {
@@ -71,6 +150,10 @@ test('media is validated, linked once, and each channel has its own history', as
     assert.equal((await app.inject({method:'POST',url:'/messages',payload:{...message,clientId:randomUUID(),channel:'general'}})).statusCode,409);
     const served=await app.inject('/media/'+id);assert.equal(served.statusCode,200);assert.equal(served.headers['content-type'],'image/png');assert.equal(served.headers['x-content-type-options'],'nosniff');
     assert.equal((await sharp(served.rawPayload).metadata()).height,12);
+    const photo=await sharp({create:{width:12,height:6,channels:3,background:'#c6352c'}}).jpeg().withMetadata({orientation:6}).toBuffer();
+    const photoId=randomUUID();const photoUpload=await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':photoId},payload:photo});assert.equal(photoUpload.statusCode,201);assert.equal(photoUpload.json().width,6);assert.equal(photoUpload.json().height,12);
+    await app.inject({method:'POST',url:'/messages',payload:{name:'Teste',text:'Foto',clientId:randomUUID(),attachmentIds:[photoId]}});
+    const photoResponse=await app.inject('/media/'+photoId);assert.equal((await sharp(photoResponse.rawPayload).metadata()).exif,undefined);
     assert.equal((await app.inject('/messages?channel=unknown')).statusCode,400);
     for(const invalid of [Buffer.from('<svg><script>alert(1)</script></svg>'),Buffer.from([137,80,78,71,13,10,26,10])]){
       const response=await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':randomUUID()},payload:invalid});assert.equal(response.statusCode,415);
@@ -81,6 +164,7 @@ test('media is validated, linked once, and each channel has its own history', as
     const gifId=randomUUID();const gifUpload=await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':gifId},payload:gif});assert.equal(gifUpload.statusCode,201);assert.equal(gifUpload.json().animated,true);
     const gifMessage=await app.inject({method:'POST',url:'/messages',payload:{name:'Teste',text:'',clientId:randomUUID(),attachmentIds:[gifId]}});assert.equal(gifMessage.statusCode,201);
     const savedGif=await app.inject('/media/'+gifId);assert.equal(savedGif.headers['content-type'],'image/gif');assert.equal((await sharp(savedGif.rawPayload,{animated:true}).metadata()).pages,2);
+    const paused=await app.inject('/media/'+gifId+'?still=1');assert.equal(paused.statusCode,200);assert.equal(paused.headers['content-type'],'image/png');assert.equal((await sharp(paused.rawPayload).metadata()).height,2);
   }finally{await app.close();}
 });
 test('legacy messages migrate to the general chat without losing data', async () => {

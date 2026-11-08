@@ -192,3 +192,19 @@ test('stored images survive restart alongside the right conversation', async () 
     assert.equal((await app.inject('/media/'+id)).statusCode,200);
   }finally{await app.close();for(const name of ['chat.sqlite','chat.sqlite-wal','chat.sqlite-shm'])rmSync(join(directory,name),{force:true});rmdirSync(directory);}
 });
+<<<<<<< HEAD
+=======
+
+test('health identifies the accounts backend so the launcher can replace older versions',async()=>{
+  const app=await createRawApp({...options,dbPath:':memory:'});
+  try{
+    const health=(await app.inject({url:'/health'})).json();
+    assert.equal(health.application,'progresso-gang-chat');
+    assert.ok(health.version>=4);
+    assert.ok(health.features.includes('accounts'));
+    assert.equal(health.pid,process.pid);
+    // Login must exist (401 for bad credentials), never Fastify's 404 "Not Found".
+    assert.equal((await app.inject({method:'POST',url:'/auth/login',headers:{origin:'http://localhost:5173'},payload:{username:'ninguem',password:testPassword}})).statusCode,401);
+  }finally{await app.close();}
+});
+>>>>>>> 112d906 (Novas Atualizações)

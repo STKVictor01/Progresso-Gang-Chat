@@ -22,6 +22,30 @@ function start(exe, args, directory, name, environment) {
     child.unref(); log(`${name} iniciado: PID ${child.pid}`);
   } finally { fs.closeSync(out); fs.closeSync(err); }
 }
+<<<<<<< HEAD
+=======
+// A backend started before an update keeps serving the old routes (for example, no /auth/login).
+const REQUIRED_BACKEND_VERSION = 4;
+function backendPid(health) {
+  if(Number.isSafeInteger(health.pid) && health.pid>0) return health.pid;
+  const lines=run('netstat.exe',['-ano','-p','TCP']).split(/\r?\n/);
+  for(const line of lines) {
+    const parts=line.trim().split(/\s+/);
+    if(parts.length>=5 && /^(127\.0\.0\.1|0\.0\.0\.0):3001$/.test(parts[1]) && parts[3]==='LISTENING') return Number(parts[4]);
+  }
+  return 0;
+}
+async function stopOutdatedBackend(health) {
+  const pid=backendPid(health);
+  if(!Number.isSafeInteger(pid) || pid<=0) throw Error('Uma versao antiga do chat esta aberta na porta 3001. Reinicie o PC e use o atalho novamente.');
+  const image=run('tasklist.exe',['/FI',`PID eq ${pid}`,'/FO','CSV','/NH']);
+  if(!/^"node(\.exe)?"/i.test(image.trim())) throw Error('A porta 3001 esta ocupada por outro programa.');
+  log(`Backend desatualizado (versao ${health.version ?? 'desconhecida'}, PID ${pid}). Reiniciando com a versao atual.`);
+  run('taskkill.exe',['/PID',String(pid),'/T','/F']);
+  for(let i=0;i<20;i++) { if(!await healthy('http://127.0.0.1:3001/health')) return; await delay(500); }
+  throw Error('Nao foi possivel encerrar a versao antiga do chat. Reinicie o PC e use o atalho novamente.');
+}
+>>>>>>> 112d906 (Novas Atualizações)
 const lockFile = path.join(logs, 'launcher.lock');
 let ownsLock = false;
 async function lock() {
@@ -55,6 +79,10 @@ async function lock() {
     let health;
     try { health=await (await fetch('http://127.0.0.1:3001/health',{signal:AbortSignal.timeout(2000)})).json(); } catch {}
     if(health && health.application!=='progresso-gang-chat') throw Error('A porta 3001 esta ocupada por outro programa.');
+<<<<<<< HEAD
+=======
+    if(health && !(health.version>=REQUIRED_BACKEND_VERSION)) { await stopOutdatedBackend(health); health=undefined; }
+>>>>>>> 112d906 (Novas Atualizações)
     if(!health) start(node,['index.js'],path.join(root,'server'),'backend',environment);
     await wait('http://127.0.0.1:3001/health');
     if(!await healthy('http://localhost:5173/')) start(node,['node_modules/vite/bin/vite.js','--port','5173','--strictPort'],path.join(root,'client'),'vite',environment);

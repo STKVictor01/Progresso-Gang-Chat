@@ -10,6 +10,10 @@ import { installAccounts } from './accounts.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
+<<<<<<< HEAD
+=======
+export const HEALTH_VERSION = 4;
+>>>>>>> 112d906 (Novas Atualizações)
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -59,7 +63,12 @@ export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger =
   if (!db.prepare('PRAGMA table_info(attachments)').all().some(c=>c.name==='owner_id')) db.exec('ALTER TABLE attachments ADD COLUMN owner_id TEXT REFERENCES users(id)');
   db.exec(`CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER NOT NULL,channel TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(message_id,kind));
     INSERT OR IGNORE INTO message_events(message_id,channel,kind) SELECT id,channel,'created' FROM messages;`);
+<<<<<<< HEAD
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:3 }));
+=======
+  // The launcher compares this version to restart a backend left running from before an update.
+  app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], pid:process.pid }));
+>>>>>>> 112d906 (Novas Atualizações)
   app.post('/token', async (request,reply) => {
     const {room='geral'}=request.body??{};
     if(typeof room!=='string'||!accounts.voiceExists(room)) return reply.code(400).send({error:'Canal de voz inválido.'});

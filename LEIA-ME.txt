@@ -1,0 +1,17 @@
+Progresso Gang - Chat: correcao do "Not Found" no login
+
+1. Feche o navegador do chat.
+2. Copie o CONTEUDO desta pasta para dentro da pasta do projeto no PC
+   (a que tem client, server e scripts) e aceite substituir os arquivos.
+3. Abra o atalho "Progresso Gang Chat". Ele encerra o servidor antigo,
+   inicia o novo e abre o link para definir a senha do Vitao.
+4. Depois, em Conta > Administrar > Pessoas e convites, gere convites
+   para os amigos.
+
+Arquivos alterados:
+  - COMO-ABRIR.md
+  - README.md
+  - client/src/api.ts
+  - scripts/abrir-chat.cjs
+  - server/app.js
+  - server/app.test.js

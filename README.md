@@ -13,6 +13,10 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 - Destaque alternavel entre cameras e transmissoes, grade e tela cheia.
 - Supressao de ruido nativa com opcao salva no navegador.
 - Silenciamento local por amigo, separado para voz e audio da transmissao.
+<<<<<<< HEAD
+=======
+- Contas com senha (Argon2id), convites de uso unico, administradores e painel para editar site e canais.
+>>>>>>> 112d906 (Novas Atualizações)
 - Interface em portugues, adaptada para computador e celular.
 - Acesso privado com Tailscale e atalho de abertura no Windows.
 
@@ -25,7 +29,11 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 
 ## Preparar o ambiente
 
+<<<<<<< HEAD
 O projeto foi testado no Windows com Node.js 26, npm e LiveKit Server. A hospedagem privada tambem usa Tailscale.
+=======
+Requer Node.js 22.5 ou superior (usa `node:sqlite`). O projeto foi testado no Windows com Node.js 26, npm e LiveKit Server. A hospedagem privada tambem usa Tailscale.
+>>>>>>> 112d906 (Novas Atualizações)
 
 1. Instale as dependencias:
 
@@ -79,6 +87,10 @@ Os testes do servidor usam bancos isolados e nao escrevem na conversa da comunid
 
 ## Dados locais
 
+<<<<<<< HEAD
 O historico fica em `server/data/chat.sqlite` no PC hospedeiro. Credenciais, banco, registros, dependencias e builds sao ignorados pelo Git. A identificacao atual e feita por apelido; o controle de acesso e fornecido pela rede privada. Este projeto nao implementa contas de usuario nem permissoes administrativas por participante.
+=======
+O historico fica em `server/data/chat.sqlite` no PC hospedeiro. Credenciais, banco, registros, dependencias e builds sao ignorados pelo Git. Cada pessoa entra com sua propria conta. A conta proprietaria e ativada pelo link de configuracao gerado em `server/data/owner-setup.json` (aberto automaticamente pelo iniciador); os demais entram por convites gerados no painel de administracao. A rede Tailscale continua sendo a primeira barreira de acesso.
+>>>>>>> 112d906 (Novas Atualizações)
 
 As pastas duplicadas de tentativas antigas de criacao do projeto continuam preservadas no PC e ficam fora do repositorio.

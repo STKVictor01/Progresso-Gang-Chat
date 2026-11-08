@@ -1,0 +1,12 @@
+# Modelo de configuracao; substitua os exemplos por suas proprias chaves.
+# Nao publique o arquivo real livekit.tailscale.yaml.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+rtc:
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  tcp_port: 7881
+  udp_port: 7882
+keys:
+  configure_sua_chave: configure_seu_segredo

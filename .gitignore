@@ -1,0 +1,32 @@
+# Dependencias, builds e registros locais
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/logs/
+*.log
+
+# Credenciais e configuracoes privadas
+**/.env
+**/.env.*
+!**/.env.example
+**/*.local
+**/livekit.tailscale.yaml
+**/*.before-ip-change
+
+# Conversas e bancos de dados locais
+**/data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Copias antigas: permanecem no PC, fora desta publicacao
+/client/client/
+/discord-amigos/
+
+# Metadados do editor e do sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.lnk

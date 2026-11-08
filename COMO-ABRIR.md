@@ -30,3 +30,10 @@ Mantenha este PC acordado para os amigos acessarem. Cada amigo usa o site com se
 
 - `client`: npm run build e npm run lint.
 - `server`: npm test (testes isolados; nao escrevem no chat da comunidade).
+## Controles de chamada
+
+- Use os botoes de camera/tela para escolher o destaque. **Automatico** prioriza uma transmissao ativa e **Ver em grade** mostra as fontes disponiveis. No celular, use o seletor **Destaque**.
+- **Tela cheia** expande o destaque. Se o navegador nao permitir a tela cheia nativa, o site expande dentro da pagina. Use **Reduzir** ou Escape para voltar.
+- **Reduzir ruidos** liga ou desliga a supressao nativa do navegador para seu microfone, mantendo cancelamento de eco e controle de ganho. A preferencia fica salva neste navegador. O resultado depende do suporte do navegador e do dispositivo; o site informa quando nao consegue confirmar a ativacao.
+- No painel **Audio dos amigos · so para voce**, controle **Voz** e **Transmissao** separadamente. O botao de alto-falante ao lado de um amigo na barra lateral tambem silencia ou reativa a voz dele apenas para voce. Esses controles nao alteram o microfone do amigo nem o audio recebido pelas outras pessoas.
+- O silenciamento individual vale para os participantes dessa conexao. Ele nao e uma moderacao global nem uma configuracao de conta de usuario.

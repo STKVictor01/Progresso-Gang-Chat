@@ -8,6 +8,9 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 - Dois canais de voz separados: **Geral** e **Jogatina**.
 - Microfone, camera e compartilhamento de tela com audio quando permitido pelo navegador.
 - Conversa de texto enquanto a chamada continua conectada.
+- Destaque alternavel entre cameras e transmissoes, grade e tela cheia.
+- Supressao de ruido nativa com opcao salva no navegador.
+- Silenciamento local por amigo, separado para voz e audio da transmissao.
 - Interface em portugues, adaptada para computador e celular.
 - Acesso privado com Tailscale e atalho de abertura no Windows.
 
@@ -64,6 +67,7 @@ Em navegadores compativeis, compartilhe uma aba com a opcao **Compartilhar audio
 # Na pasta client
 npm run build
 npm run lint
+npm test
 
 # Na pasta server
 npm test

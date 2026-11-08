@@ -1,10 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { RoomContext, ParticipantTile, RoomAudioRenderer, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useTracks, useConnectionState, useIsSpeaking, useLocalParticipant } from '@livekit/components-react';
+import { RoomContext, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useConnectionState, useIsSpeaking, useLocalParticipant, useTracks } from '@livekit/components-react';
 import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
 import '@livekit/components-styles';
 import './App.css';
+import { CallPreferencesProvider, PersonalAudioRenderer, ParticipantAudioPanel, QuickParticipantMute, NoiseSuppressionControl } from './call-audio';
+import { useCallPreferences } from './call-preferences';
+import { microphoneOptions, readNoisePreference } from './call-settings';
+import { MediaFocusStage } from './media-focus';
+import { ChannelChat } from './channel-chat';
 
 type Session = { token: string; serverUrl: string };
 type IconName = 'voice' | 'arrow' | 'link' | 'shield' | 'chat' | 'close' | 'chevron' | 'headphones';
@@ -35,7 +40,7 @@ function InviteButton() {
 function Member({ participant }: { participant: Participant }) {
   const speaking = useIsSpeaking(participant);
   const label = participant.name || 'Participante';
-  return <li className={`member ${speaking ? 'speaking' : ''}`}><span className="member-avatar">{label.slice(0, 2).toLocaleUpperCase('pt-BR')}</span><span className="member-name">{label}<small>{speaking ? 'Falando agora' : participant.isLocal ? 'Você' : 'Na sala'}</small></span><span className="sound-bars" aria-label={speaking ? 'Falando' : 'Em silêncio'}><i /><i /><i /></span></li>;
+  return <li className={`member ${speaking ? 'speaking' : ''}`}><span className="member-avatar">{label.slice(0, 2).toLocaleUpperCase('pt-BR')}</span><span className="member-name">{label}<small>{speaking ? 'Falando agora' : participant.isLocal ? 'Você' : 'Na sala'}</small></span><QuickParticipantMute participant={participant} /><span className="sound-bars" aria-label={speaking ? 'Falando' : 'Em silêncio'}><i /><i /><i /></span></li>;
 }
 function Poster() {
   return <section className="poster" aria-label="Progresso Gang: de cada canto, no mesmo lugar">
@@ -59,6 +64,7 @@ type Navigation = {
   selectedVoice: VoiceId; selectVoice: (id: VoiceId) => void; activeVoice: VoiceId | null;
   joinVoice: (id: VoiceId) => void; joining: boolean; audio: boolean; setAudio: (audio: boolean) => void;
   error: string; setError: (error: string) => void;
+  callChatOpen: boolean; setCallChatOpen: (open: boolean) => void;
 };
 const NavigationContext = createContext<Navigation | null>(null);
 function useNavigation() { const value = useContext(NavigationContext); if (!value) throw Error('Missing navigation'); return value; }
@@ -77,104 +83,27 @@ function PageHeader() {
   return <header className="page-header"><div className="channel-heading"><Icon name={nav.view === 'text' ? 'chat' : 'voice'} size={23} /><div><strong>{nav.view === 'text' ? '#geral' : channel?.name}</strong><span>{nav.view === 'text' ? 'O papo continua. Com ou sem microfone.' : channel?.hint}</span></div></div><InviteButton /></header>;
 }
 
-type TextMessage = { id: number; name: string; text: string; timestamp: number };
-function PublicChat() {
-  const { name, view } = useNavigation();
-  const [messages, setMessages] = useState<TextMessage[]>([]);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
-  const [status, setStatus] = useState('Carregando conversa…');
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const cursor = useRef(0);
-  const pending = useRef<{text: string; id: string} | null>(null);
-  const scroller = useRef<HTMLDivElement>(null);
-  const atBottom = useRef(true);
-  const bottom = useRef<HTMLDivElement>(null);
-  const hydrated = useRef(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    async function refresh() {
-      try {
-        const url = hydrated.current ? '/api/messages?after=' + cursor.current : '/api/messages';
-        const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-        if (!response.ok) throw Error('Servidor indisponível');
-        const data = await response.json() as { messages: TextMessage[]; hasMore?: boolean };
-        if (controller.signal.aborted) return;
-        if (!hydrated.current) setHasMore(Boolean(data.hasMore));
-        hydrated.current = true;
-        cursor.current = Math.max(cursor.current, ...data.messages.map(m => m.id));
-        setMessages(previous => [...new Map([...previous, ...data.messages].map(m => [m.id, m])).values()].sort((a,b) => a.id-b.id));
-        setStatus('Mensagens salvas no servidor');
-      } catch { if (!controller.signal.aborted) setStatus('Sem conexão. Tentando reconectar…'); }
-      finally { if (!controller.signal.aborted) timer = setTimeout(refresh, 2000); }
-    }
-    void refresh();
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, []);
-  useEffect(() => { if (view === 'text' && atBottom.current) bottom.current?.scrollIntoView({ block: 'nearest' }); }, [messages.length, view]);
-  async function send(e: FormEvent) {
-    e.preventDefault(); const text = draft.trim(); if (!text || sending) return;
-    setSending(true); setError('');
-    if (pending.current?.text !== text) pending.current = { text, id: crypto.randomUUID() };
-    try {
-      const response = await fetch('/api/messages', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, text, clientId: pending.current.id}), signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw Error('Não foi possível enviar. Tente novamente.');
-      const sent = await response.json() as TextMessage;
-      setMessages(previous => [...new Map([...previous, sent].map(m => [m.id, m])).values()].sort((a,b) => a.id-b.id));
-      setDraft(''); pending.current = null; atBottom.current = true;
-    } catch { setError('Não foi possível enviar. Sua mensagem continua aqui para tentar de novo.'); }
-    finally { setSending(false); }
-  }
-  async function older() {
-    if (!messages.length || loadingOlder) return;
-    setLoadingOlder(true); setError('');
-    const previousHeight = scroller.current?.scrollHeight ?? 0;
-    try {
-      const response = await fetch('/api/messages?before=' + messages[0].id);
-      if (!response.ok) throw Error('Histórico indisponível');
-      const data = await response.json() as {messages:TextMessage[]; hasMore:boolean};
-      atBottom.current = false;
-      setMessages(previous => [...new Map([...data.messages,...previous].map(m => [m.id,m])).values()].sort((a,b) => a.id-b.id)); setHasMore(data.hasMore);
-      requestAnimationFrame(() => { if (scroller.current) scroller.current.scrollTop += scroller.current.scrollHeight - previousHeight; });
-    } catch { setError('Não foi possível carregar mensagens anteriores. Tente novamente.'); }
-    finally { setLoadingOlder(false); }
-  }
-  return <section className="public-chat" hidden={view !== 'text'} aria-label="Chat geral"><div className="text-chat-heading"><span className="eyebrow">O PONTO DE ENCONTRO DA GANG</span><h1>O salve é pra todo mundo.</h1><p>Escreva, troque ideia, fique por aqui. Voz é opcional.</p></div><div className="public-messages" ref={scroller} onScroll={() => { const el=scroller.current; if(el) atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<90; }} role="log" aria-label="Mensagens do canal geral" aria-live="polite">{hasMore && <button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}{messages.length === 0 && <div className="public-chat-empty"><Icon name="chat" size={36} /><h2>A resenha começa aqui.</h2><p>Mande o primeiro salve da comunidade.</p></div>}{messages.map(m => <article key={m.id} className="public-message"><span className="member-avatar" aria-hidden="true">{m.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span><div><header><strong>{m.name}</strong><time dateTime={new Date(m.timestamp).toISOString()}>{new Date(m.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></header><p>{m.text}</p></div></article>)}<div ref={bottom} /></div><div className="public-compose"><p className="chat-sync" role="status">{status}</p><form onSubmit={send}><label className="sr-only" htmlFor="public-message">Mensagem para #geral</label><textarea id="public-message" value={draft} onChange={e => setDraft(e.target.value)} maxLength={2000} placeholder="Manda a boa no #geral…" rows={2} disabled={sending} onKeyDown={e=>{if(e.key==='Enter' && !e.shiftKey && !e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} /><button className="button primary" disabled={sending || !draft.trim()} type="submit" aria-label="Enviar mensagem"><span>{sending ? 'Enviando…' : 'Enviar'}</span><Icon name="arrow" /></button></form><small>Enter envia · Shift + Enter quebra a linha</small>{error && <p className="error-message" role="alert">{error}</p>}</div></section>;
-}
-function VoiceStage() {
-  const participants = useParticipants();
-  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }]);
-  const shares = tracks.filter(t => t.source === Track.Source.ScreenShare);
-  const cameras = tracks.filter(t => t.source === Track.Source.Camera);
-  const screenAudioTracks = useTracks([Track.Source.ScreenShareAudio], { onlySubscribed: false });
-  const [selectedShare, setSelectedShare] = useState('');
-  const focusedShare = shares.find(t => t.participant.identity === selectedShare) ?? shares[0];
-  const focusedAudio = screenAudioTracks.find(t => t.participant.identity === focusedShare?.participant.identity);
-  const audioStatus = !focusedAudio ? 'Sem áudio compartilhado' : focusedAudio.publication.isMuted ? 'Áudio compartilhado silenciado' : 'Áudio compartilhado';
-  const connected = useConnectionState() === ConnectionState.Connected;
-  return <section className={`stage ${focusedShare ? 'has-share' : ''}`} aria-label="Participantes e transmissões">{focusedShare && <div className="screen-stage"><div className="screen-caption"><span className="live-label">AO VIVO</span><span>{focusedShare.participant.name || 'Participante'} está compartilhando</span><span className={"share-audio-status " + (focusedAudio && !focusedAudio.publication.isMuted ? 'has-audio' : 'no-audio')} role="status">{audioStatus}</span></div>{shares.length > 1 && <div className="share-tabs" aria-label="Escolher transmissão">{shares.map(t => <button key={t.participant.identity} className="button subtle" aria-pressed={t.participant.identity === focusedShare.participant.identity} onClick={() => setSelectedShare(t.participant.identity)}>{t.participant.name || 'Transmissão'}</button>)}</div>}<ParticipantTile trackRef={focusedShare} /></div>}<div className="people-grid">{cameras.map(t => <ParticipantTile key={t.participant.identity} trackRef={t} data-avatar={(t.participant.name || "PG").slice(0, 2).toLocaleUpperCase("pt-BR")} />)}</div>{connected && participants.length === 1 && <p className="waiting-note"><Icon name="link" size={16} />Por enquanto, só você. Convide a gang pelo botão no topo.</p>}</section>;
-}
+function PublicChat() { const {name,view}=useNavigation(); return <ChannelChat name={name} channel="general" title="#geral" visible={view==='text'} />; }
 function VoiceControls() {
+  const preferences = useCallPreferences();
   const navigation = useNavigation();
   const { isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const audioShares = useTracks([Track.Source.ScreenShareAudio], { onlySubscribed: false });
   const localShareHasAudio = audioShares.some(t => t.participant.isLocal && !t.publication.isMuted);
   const deviceError = () => navigation.setError('Confira as permissões de câmera, microfone ou transmissão do navegador e tente novamente.');
-  return <><div className="call-controls" aria-label="Controles da chamada"><div className="media-control"><TrackToggle source={Track.Source.Microphone} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'}>{isMicrophoneEnabled ? 'Microfone ligado' : 'Microfone desligado'}</TrackToggle><MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone" /></div><div className="media-control"><TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}>Câmera</TrackToggle><MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera" /></div>{typeof navigator !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices && <TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false }} onDeviceError={deviceError}>{isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'}</TrackToggle>}<button className="button chat-toggle" onClick={() => navigation.setView("text")}><Icon name="chat" /><span>Abrir #geral</span></button><DisconnectButton className="leave-button">Sair do canal</DisconnectButton></div>{isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">Sua transmissão está sem áudio. Pare e compartilhe novamente, marcando “Compartilhar áudio” na janela do navegador. Para conteúdo de uma aba, use Chrome ou Edge e compartilhe essa aba com áudio.</p>}</>;
+  return <><div className="call-controls" aria-label="Controles da chamada"><div className="media-control"><TrackToggle source={Track.Source.Microphone} captureOptions={microphoneOptions(preferences.noiseSupported && preferences.noiseSuppression)} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'}>{isMicrophoneEnabled ? 'Microfone ligado' : 'Microfone desligado'}</TrackToggle><MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone" /></div><div className="media-control"><TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}>Câmera</TrackToggle><MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera" /></div>{typeof navigator !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices && <TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false }} onDeviceError={deviceError}>{isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'}</TrackToggle>}<button className="button chat-toggle" aria-expanded={navigation.callChatOpen && navigation.view === "voice"} onClick={() => { if(navigation.activeVoice){ navigation.selectVoice(navigation.activeVoice); navigation.setCallChatOpen(navigation.view !== "voice" || !navigation.callChatOpen); } }}><Icon name="chat" /><span>Chat da call</span></button><NoiseSuppressionControl /><DisconnectButton className="leave-button">Sair do canal</DisconnectButton></div><ParticipantAudioPanel />{isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">Sua transmissão está sem áudio. Pare e compartilhe novamente, marcando “Compartilhar áudio” na janela do navegador. Para conteúdo de uma aba, use Chrome ou Edge e compartilhe essa aba com áudio.</p>}</>;
 }
 function Community() {
   const nav = useNavigation();
   const state = useConnectionState();
   const channel = CHANNELS.find(c=>c.id===nav.selectedVoice)!;
-  return <div className="app-shell room-shell community-shell"><Sidebar /><main className="main-panel" id="principal"><PageHeader />{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><div className="room-heading"><div><span className="eyebrow">CANAL DE VOZ</span><h1>{channel.name}</h1></div><span className="connection-badge" role="status">{nav.joining ? 'Entrando no canal…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : nav.activeVoice===channel.id ? 'Na mesma sintonia' : 'O próximo papo começa aqui'}</span></div>{nav.activeVoice===channel.id ? <VoiceStage /> : <div className="voice-welcome"><div className="join-symbol"><Icon name="headphones" size={30} /></div><h2>{channel.id==='jogatina' ? 'Fecha o squad.' : 'Puxa uma cadeira.'}</h2><p>{nav.activeVoice ? 'Ao entrar aqui, você sai do outro canal de voz.' : 'Entre quando quiser conversar. Seu microfone só liga com a sua escolha.'}</p><label className="mic-option"><input type="checkbox" checked={nav.audio} onChange={e=>nav.setAudio(e.target.checked)} disabled={nav.joining} />Entrar com o microfone ligado</label><button className="button primary" onClick={()=>nav.joinVoice(channel.id)} disabled={nav.joining}>{nav.joining ? 'Conectando…' : 'Entrar em '+channel.name}<Icon name="arrow" /></button></div>}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><Icon name="voice" size={16} /><span>{state===ConnectionState.Connected ? 'Na voz' : 'Reconectando'} · {CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</span></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><RoomAudioRenderer /></main></div>;
+  return <div className="app-shell room-shell community-shell"><Sidebar /><main className="main-panel" id="principal"><PageHeader />{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><div className="room-heading"><div><span className="eyebrow">CANAL DE VOZ</span><h1>{channel.name}</h1></div><span className="connection-badge" role="status">{nav.joining ? 'Entrando no canal…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : nav.activeVoice===channel.id ? 'Na mesma sintonia' : 'O próximo papo começa aqui'}</span></div>{nav.activeVoice===channel.id ? <div className={"voice-content-row " + (nav.callChatOpen ? "call-chat-open" : "")}><MediaFocusStage /><aside className="call-chat-side" hidden={!nav.callChatOpen}><ChannelChat key={nav.activeVoice} name={nav.name} channel={"voice:"+nav.activeVoice} title={channel.name} compact visible={nav.callChatOpen && nav.view === "voice"} onClose={() => nav.setCallChatOpen(false)} /></aside></div> : <div className="voice-welcome"><div className="join-symbol"><Icon name="headphones" size={30} /></div><h2>{channel.id==='jogatina' ? 'Fecha o squad.' : 'Puxa uma cadeira.'}</h2><p>{nav.activeVoice ? 'Ao entrar aqui, você sai do outro canal de voz.' : 'Entre quando quiser conversar. Seu microfone só liga com a sua escolha.'}</p><label className="mic-option"><input type="checkbox" checked={nav.audio} onChange={e=>nav.setAudio(e.target.checked)} disabled={nav.joining} />Entrar com o microfone ligado</label><button className="button primary" onClick={()=>nav.joinVoice(channel.id)} disabled={nav.joining}>{nav.joining ? 'Conectando…' : 'Entrar em '+channel.name}<Icon name="arrow" /></button></div>}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><Icon name="voice" size={16} /><span>{state===ConnectionState.Connected ? 'Na voz' : 'Reconectando'} · {CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</span></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><PersonalAudioRenderer /></main></div>;
 }
 export default function App() {
-  const [room] = useState(() => new Room({ adaptiveStream: true, dynacast: true }));
+  const [room] = useState(() => new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: microphoneOptions(readNoisePreference()) }));
   const [name, setName] = useState('');
   const [view, setView] = useState<'text' | 'voice'>('text');
+  const [callChatOpen, setCallChatOpen] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<VoiceId>('geral');
   const [activeVoice, setActiveVoice] = useState<VoiceId | null>(null);
   const [audio, setAudio] = useState(false);
@@ -198,7 +127,7 @@ export default function App() {
       await room.disconnect();
       await room.connect(data.serverUrl,data.token);
       setActiveVoice(id);
-      if(enableAudio) { try { await room.localParticipant.setMicrophoneEnabled(true); } catch { setError('Você entrou no canal, mas o microfone não pôde ser ligado. Confira as permissões.'); } }
+      if(enableAudio) { try { await room.localParticipant.setMicrophoneEnabled(true, microphoneOptions(readNoisePreference())); } catch { setError('Você entrou no canal, mas o microfone não pôde ser ligado. Confira as permissões.'); } }
     } catch { setError('Não foi possível conectar à voz. Confira o Tailscale e tente novamente.'); }
     finally { switching.current=false; setJoining(false); }
   }
@@ -207,6 +136,6 @@ export default function App() {
     try { localStorage.setItem('pg-name',nickname); } catch { /* Browser storage is optional. */ }
     setName(nickname); setAudio(microphone);
   }
-  const navigation:Navigation={name,view,setView,selectedVoice,selectVoice,activeVoice,joinVoice:id=>void joinVoice(id),joining,audio,setAudio,error,setError};
-  return <div data-lk-theme="default" className="progresso-app">{!name ? <Lobby onJoin={enterCommunity} loading={false} error="" /> : <RoomContext.Provider value={room}><div className="live-room lk-room-container"><NavigationContext.Provider value={navigation}><Community /></NavigationContext.Provider></div></RoomContext.Provider>}</div>;
+  const navigation:Navigation={name,view,setView,selectedVoice,selectVoice,activeVoice,joinVoice:id=>void joinVoice(id),joining,audio,setAudio,error,setError,callChatOpen,setCallChatOpen};
+  return <div data-lk-theme="default" className="progresso-app">{!name ? <Lobby onJoin={enterCommunity} loading={false} error="" /> : <RoomContext.Provider value={room}><div className="live-room lk-room-container"><CallPreferencesProvider><NavigationContext.Provider value={navigation}><Community /></NavigationContext.Provider></CallPreferencesProvider></div></RoomContext.Provider>}</div>;
 }

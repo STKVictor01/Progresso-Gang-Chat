@@ -10,13 +10,10 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 - Dois canais de voz separados: **Geral** e **Jogatina**.
 - Microfone, camera e compartilhamento de tela com audio quando permitido pelo navegador.
 - Conversa de texto enquanto a chamada continua conectada.
-- Destaque alternavel entre cameras e transmissoes, grade e tela cheia.
+- Destaque alternavel entre cameras ligadas e transmissoes ativas, grade e tela cheia.
 - Supressao de ruido nativa com opcao salva no navegador.
 - Silenciamento local por amigo, separado para voz e audio da transmissao.
-<<<<<<< HEAD
-=======
 - Contas com senha (Argon2id), convites de uso unico, administradores e painel para editar site e canais.
->>>>>>> 112d906 (Novas Atualizações)
 - Interface em portugues, adaptada para computador e celular.
 - Acesso privado com Tailscale e atalho de abertura no Windows.
 
@@ -29,11 +26,7 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 
 ## Preparar o ambiente
 
-<<<<<<< HEAD
-O projeto foi testado no Windows com Node.js 26, npm e LiveKit Server. A hospedagem privada tambem usa Tailscale.
-=======
 Requer Node.js 22.5 ou superior (usa `node:sqlite`). O projeto foi testado no Windows com Node.js 26, npm e LiveKit Server. A hospedagem privada tambem usa Tailscale.
->>>>>>> 112d906 (Novas Atualizações)
 
 1. Instale as dependencias:
 
@@ -69,7 +62,9 @@ O nome privado da maquina e passado pelo iniciador para o Vite na variavel `PG_C
 
 ## Audio da transmissao
 
-Em navegadores compativeis, compartilhe uma aba com a opcao **Compartilhar audio da aba** marcada. O site informa se existe uma faixa de audio compartilhada. A disponibilidade de audio de janela ou sistema depende do navegador.
+No Chrome ou Edge, escolha uma aba e marque **Compartilhar audio da aba**. O site informa se existe uma faixa de audio compartilhada. A disponibilidade de audio de janela ou sistema depende do navegador.
+
+O Firefox transmite a imagem e o microfone, mas nao oferece captura nativa do audio da tela pelo `getDisplayMedia` ([acompanhamento da Mozilla](https://bugzilla.mozilla.org/show_bug.cgi?id=1541425)). Quem assiste pode continuar usando Firefox; a limitacao esta no navegador de quem compartilha.
 
 ## Verificacoes
 
@@ -85,12 +80,10 @@ npm test
 
 Os testes do servidor usam bancos isolados e nao escrevem na conversa da comunidade.
 
+Para verificar segredos, instale o [Gitleaks oficial](https://github.com/gitleaks/gitleaks) e execute `node scripts/check-secrets.cjs` na raiz. Ative a verificacao antes de cada commit com `git config core.hooksPath .githooks`. O GitHub Actions tambem verifica o historico ao receber commits e pull requests.
+
 ## Dados locais
 
-<<<<<<< HEAD
-O historico fica em `server/data/chat.sqlite` no PC hospedeiro. Credenciais, banco, registros, dependencias e builds sao ignorados pelo Git. A identificacao atual e feita por apelido; o controle de acesso e fornecido pela rede privada. Este projeto nao implementa contas de usuario nem permissoes administrativas por participante.
-=======
 O historico fica em `server/data/chat.sqlite` no PC hospedeiro. Credenciais, banco, registros, dependencias e builds sao ignorados pelo Git. Cada pessoa entra com sua propria conta. A conta proprietaria e ativada pelo link de configuracao gerado em `server/data/owner-setup.json` (aberto automaticamente pelo iniciador); os demais entram por convites gerados no painel de administracao. A rede Tailscale continua sendo a primeira barreira de acesso.
->>>>>>> 112d906 (Novas Atualizações)
 
 As pastas duplicadas de tentativas antigas de criacao do projeto continuam preservadas no PC e ficam fora do repositorio.

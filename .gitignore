@@ -23,6 +23,8 @@
 # Copias antigas: permanecem no PC, fora desta publicacao
 /client/client/
 /discord-amigos/
+/Progresso-Gang-Chat-main/
+/server/data-backup/
 
 # Metadados do editor e do sistema
 .vscode/

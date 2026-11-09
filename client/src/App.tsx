@@ -1,17 +1,20 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { RoomContext, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useConnectionState, useIsSpeaking, useLocalParticipant, useTracks } from '@livekit/components-react';
 import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
 import '@livekit/components-styles';
 import './App.css';
-import { CallPreferencesProvider, PersonalAudioRenderer, ParticipantAudioPanel, QuickParticipantMute, NoiseSuppressionControl } from './call-audio';
+import { CallPreferencesProvider, PersonalAudioRenderer, ParticipantAudioControls, QuickParticipantMute, NoiseSuppressionControl } from './call-audio';
 import { useCallPreferences } from './call-preferences';
 import { microphoneOptions, readNoisePreference } from './call-settings';
 import { MediaFocusStage } from './media-focus';
 import { ChannelChat } from './channel-chat';
 import { AccountGate, AccountActions, useAccount } from './accounts';
 import { api } from './api';
+import { Soundboard } from './soundboard';
+import { OnlineMembers, ProfileEditor, PresenceProvider, usePresence } from './presence';
 
 type Session = { token: string; serverUrl: string };
 type IconName = 'voice' | 'arrow' | 'link' | 'shield' | 'chat' | 'close' | 'chevron' | 'headphones';
@@ -41,8 +44,30 @@ function InviteButton() {
 }
 function Member({ participant }: { participant: Participant }) {
   const speaking = useIsSpeaking(participant);
+  const {profiles,showProfile} = usePresence();
+  const profile = profiles.find(person => person.id === participant.identity.split(':')[0]);
   const label = participant.name || 'Participante';
-  return <li className={`member ${speaking ? 'speaking' : ''}`}><span className="member-avatar">{label.slice(0, 2).toLocaleUpperCase('pt-BR')}</span><span className="member-name">{label}<small>{speaking ? 'Falando agora' : participant.isLocal ? 'Você' : 'Na sala'}</small></span><QuickParticipantMute participant={participant} /><span className="sound-bars" aria-label={speaking ? 'Falando' : 'Em silêncio'}><i /><i /><i /></span></li>;
+  const settings = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const [position,setPosition] = useState({top:0,left:0});
+  function openSettings() {
+    const rect = button.current?.getBoundingClientRect();
+    if (!rect || !settings.current) return;
+    if (settings.current.matches(':popover-open')) { settings.current.hidePopover(); return; }
+    setPosition({left: Math.max(8, Math.min(rect.right + 8, window.innerWidth - 288)), top: Math.max(8, Math.min(rect.top, window.innerHeight - 280))});
+    settings.current.showPopover();
+  }
+  useEffect(() => {
+    const close = () => { if (settings.current?.matches(':popover-open')) settings.current.hidePopover(); };
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); };
+  }, []);
+  return <li className={`member ${speaking ? 'speaking' : ''}`}>
+    <button className="voice-profile-button" disabled={!profile} onClick={()=>profile && showProfile(profile.id)} aria-label={'Ver perfil de '+label}>{profile?.avatarUrl ? <img className="member-avatar" src={profile.avatarUrl} alt=""/> : <span className="member-avatar">{label.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}</button>
+    {participant.isLocal ? <span className="member-name">{label}<small>Você</small></span> : <><button className="voice-member-trigger" ref={button} onClick={openSettings} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name">{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Áudio de '+label}><strong>{label}</strong><ParticipantAudioControls participant={participant} /></div>,document.body)}</>}
+    <QuickParticipantMute participant={participant} />
+  </li>;
 }
 type VoiceId = string;
 type Navigation = {
@@ -60,7 +85,7 @@ function Sidebar() {
   const {voice:CHANNELS,text,site}=useAccount();
   const nav = useNavigation();
   const participants = useParticipants();
-  return <aside className="sidebar community-sidebar" aria-label="Canais da comunidade"><Brand /><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais"><div className="sidebar-section-label">CONVERSA</div>{text.map(channel=><button key={channel.id} className={'channel text-channel ' + (nav.view === 'text' && nav.selectedText === channel.id ? 'active' : '')} aria-current={nav.view === 'text' && nav.selectedText === channel.id ? 'page' : undefined} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span>#{channel.name}<small>{channel.hint}</small></span></button>)}<div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span></div>{CHANNELS.map(channel => <button key={channel.id} className={'channel ' + (nav.view === 'voice' && nav.selectedVoice === channel.id ? 'active' : '')} aria-current={nav.view === 'voice' && nav.selectedVoice === channel.id ? 'page' : undefined} onClick={() => nav.selectVoice(channel.id)} disabled={nav.joining}><Icon name="voice" /><span>{channel.name}<small>{nav.activeVoice === channel.id ? 'Você está neste canal' : channel.hint}</small></span>{nav.activeVoice === channel.id && <span className="channel-dot" />}</button>)}</nav>{nav.activeVoice && <><div className="sidebar-section-label participants-label">NA VOZ · {CHANNELS.find(c => c.id === nav.activeVoice)?.name.toUpperCase()} <span>{participants.length}</span></div><ul className="members">{participants.map(p => <Member key={p.identity} participant={p} />)}</ul></>}<div className="sidebar-bottom"><div className="identity-card"><span className="member-avatar">{nav.name.slice(0, 2).toLocaleUpperCase('pt-BR')}</span><div><strong>{nav.name}</strong><small>{nav.activeVoice ? 'Conectado à voz' : 'Só no texto. De boa.'}</small></div></div><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
+  return <aside className="sidebar community-sidebar" aria-label="Canais da comunidade"><Brand /><OnlineMembers /><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais"><div className="sidebar-section-label">CONVERSA</div>{text.map(channel=><button key={channel.id} className={'channel text-channel ' + (nav.view === 'text' && nav.selectedText === channel.id ? 'active' : '')} aria-current={nav.view === 'text' && nav.selectedText === channel.id ? 'page' : undefined} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span>#{channel.name}<small>{channel.hint}</small></span></button>)}<div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span></div>{CHANNELS.map(channel => <button key={channel.id} className={'channel ' + (nav.view === 'voice' && nav.selectedVoice === channel.id ? 'active' : '')} aria-current={nav.view === 'voice' && nav.selectedVoice === channel.id ? 'page' : undefined} onClick={() => nav.selectVoice(channel.id)} disabled={nav.joining}><Icon name="voice" /><span>{channel.name}<small>{nav.activeVoice === channel.id ? 'Você está neste canal' : channel.hint}</small></span>{nav.activeVoice === channel.id && <span className="channel-dot" />}</button>)}</nav>{nav.activeVoice && <><div className="sidebar-section-label participants-label voice-members-heading">NA VOZ · {CHANNELS.find(c => c.id === nav.activeVoice)?.name.toUpperCase()} <span>{participants.length}</span></div><ul className="members">{participants.map(p => <Member key={p.identity} participant={p} />)}</ul></>}<div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Conectado à voz' : 'Só no texto. De boa.'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
 }
 function PageHeader() {
   const {voice:CHANNELS,text}=useAccount();
@@ -76,8 +101,9 @@ function VoiceControls() {
   const { isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const audioShares = useTracks([Track.Source.ScreenShareAudio], { onlySubscribed: false });
   const localShareHasAudio = audioShares.some(t => t.participant.isLocal && !t.publication.isMuted);
+  const firefox = /\bFirefox\//.test(navigator.userAgent);
   const deviceError = () => navigation.setError('Confira as permissões de câmera, microfone ou transmissão do navegador e tente novamente.');
-  return <><div className="call-controls" aria-label="Controles da chamada"><div className="media-control"><TrackToggle source={Track.Source.Microphone} captureOptions={microphoneOptions(preferences.noiseSupported && preferences.noiseSuppression)} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'}>{isMicrophoneEnabled ? 'Microfone ligado' : 'Microfone desligado'}</TrackToggle><MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone" /></div><div className="media-control"><TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}>Câmera</TrackToggle><MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera" /></div>{typeof navigator !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices && <TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false }} onDeviceError={deviceError}>{isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'}</TrackToggle>}<button className="button chat-toggle" aria-expanded={navigation.callChatOpen && navigation.view === "voice"} onClick={() => { if(navigation.activeVoice){ navigation.selectVoice(navigation.activeVoice); navigation.setCallChatOpen(navigation.view !== "voice" || !navigation.callChatOpen); } }}><Icon name="chat" /><span>Chat da call</span></button><NoiseSuppressionControl /><DisconnectButton className="leave-button">Sair do canal</DisconnectButton></div><ParticipantAudioPanel />{isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">Sua transmissão está sem áudio. Pare e compartilhe novamente, marcando “Compartilhar áudio” na janela do navegador. Para conteúdo de uma aba, use Chrome ou Edge e compartilhe essa aba com áudio.</p>}</>;
+  return <><div className="call-controls" aria-label="Controles da chamada"><div className="media-control"><TrackToggle source={Track.Source.Microphone} captureOptions={microphoneOptions(preferences.noiseSupported && preferences.noiseSuppression)} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} aria-label={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} /><MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone" /></div><div className="media-control"><TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} aria-label={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} /><MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera" /></div>{typeof navigator !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices && <TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false }} onDeviceError={deviceError} title={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} aria-label={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} />}<button className="button chat-toggle" title="Chat da call" aria-label="Chat da call" aria-expanded={navigation.callChatOpen && navigation.view === "voice"} onClick={() => { if(navigation.activeVoice){ navigation.selectVoice(navigation.activeVoice); navigation.setCallChatOpen(navigation.view !== "voice" || !navigation.callChatOpen); } }}><Icon name="chat" /></button><NoiseSuppressionControl />{navigation.activeVoice && <Soundboard key={navigation.activeVoice} channel={navigation.activeVoice} />}<DisconnectButton className="leave-button" title="Sair do canal" aria-label="Sair do canal"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></svg></DisconnectButton></div>{isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">{firefox ? 'O Firefox está compartilhando a imagem, mas não captura o som da tela. Para transmitir som, abra o chat no Chrome ou Edge e compartilhe uma aba com áudio.' : 'Esta transmissão está sem áudio. Compartilhe novamente e marque a opção de áudio no seletor do navegador, se disponível.'}</p>}</>;
 }
 function Community() {
   const {voice:CHANNELS}=useAccount();
@@ -123,5 +149,5 @@ function AuthenticatedApp() {
   }
   function selectVoice(id:VoiceId) { setSelectedVoice(id); setView('voice'); if(activeVoice && activeVoice!==id) void joinVoice(id); }
   const navigation:Navigation={selectedText,selectText:id=>{setSelectedText(id);setView('text');},name,view,setView,selectedVoice,selectVoice,activeVoice,joinVoice:id=>void joinVoice(id),joining,audio,setAudio,error,setError,callChatOpen,setCallChatOpen};
-  return <div data-lk-theme="default" className="progresso-app"><RoomContext.Provider value={room}><div className="live-room lk-room-container"><CallPreferencesProvider><NavigationContext.Provider value={navigation}><Community /></NavigationContext.Provider></CallPreferencesProvider></div></RoomContext.Provider></div>;
+  return <div data-lk-theme="default" className="progresso-app"><RoomContext.Provider value={room}><div className="live-room lk-room-container"><CallPreferencesProvider><NavigationContext.Provider value={navigation}><PresenceProvider><Community /></PresenceProvider></NavigationContext.Provider></CallPreferencesProvider></div></RoomContext.Provider></div>;
 }

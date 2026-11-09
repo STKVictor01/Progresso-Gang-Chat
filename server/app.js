@@ -7,13 +7,11 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import sharp from 'sharp';
 import { installAccounts } from './accounts.js';
+import { normalizeSoundboardWav } from './soundboard-audio.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-<<<<<<< HEAD
-=======
-export const HEALTH_VERSION = 4;
->>>>>>> 112d906 (Novas Atualizações)
+export const HEALTH_VERSION = 10;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -25,7 +23,7 @@ function imageSignature(buffer) {
   if (buffer.subarray(0,4).toString('ascii')==='RIFF' && buffer.subarray(8,12).toString('ascii')==='WEBP') return 'webp';
   return null;
 }
-export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger = true, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], onOwnerReady }) {
+export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger = true, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], onOwnerReady }) {
   if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
@@ -45,30 +43,57 @@ export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger =
       attachment_id TEXT NOT NULL UNIQUE REFERENCES attachments(id),
       position INTEGER NOT NULL,
       PRIMARY KEY(message_id,attachment_id)
-    );`);
+    );
+    CREATE TABLE IF NOT EXISTS profiles (user_id TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '', avatar_id TEXT REFERENCES attachments(id));
+    CREATE TABLE IF NOT EXISTS soundboard (id TEXT PRIMARY KEY, channel TEXT NOT NULL, name TEXT NOT NULL, owner_id TEXT NOT NULL, data BLOB NOT NULL, created_at INTEGER NOT NULL);`);
   const mediaFields = 'a.id,a.mime,a.width,a.height,a.size,a.animated';
   const messageMedia = db.prepare(`SELECT ${mediaFields} FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=? ORDER BY ma.position`);
   const serializeMedia = media => ({ ...media, animated: Boolean(media.animated), url: '/api/media/'+media.id, posterUrl: media.animated ? '/api/media/'+media.id+'?still=1' : undefined });
   const serializeMessage = (message,user) => ({ ...message, canDelete: user.role==='admin'||message.user_id===user.id, attachments: messageMedia.all(message.id).map(serializeMedia) });
-  const cleanAbandoned = () => db.prepare('DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments)').run(Date.now()-86400000);
+  const cleanAbandoned = () => db.prepare('DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)').run(Date.now()-86400000);
   cleanAbandoned();
   const app = Fastify({ logger, bodyLimit: 16384 });
   app.addContentTypeParser('application/octet-stream', { parseAs:'buffer', bodyLimit:MAX_UPLOAD_BYTES }, (_request,body,done)=>done(null,body));
   app.addHook('onClose', async () => db.close());
   await app.register(cors, { origin: 'http://localhost:5173' });
-  const accounts = await installAccounts(app,db,{ownerSetupToken,secureCookies,allowedOrigins,onOwnerReady});
+  const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady});
   const columns = db.prepare('PRAGMA table_info(messages)').all();
   if (!columns.some(c=>c.name==='user_id')) db.exec('ALTER TABLE messages ADD COLUMN user_id TEXT REFERENCES users(id)');
   if (!columns.some(c=>c.name==='deleted_at')) db.exec('ALTER TABLE messages ADD COLUMN deleted_at INTEGER');
   if (!db.prepare('PRAGMA table_info(attachments)').all().some(c=>c.name==='owner_id')) db.exec('ALTER TABLE attachments ADD COLUMN owner_id TEXT REFERENCES users(id)');
   db.exec(`CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER NOT NULL,channel TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(message_id,kind));
+    CREATE INDEX IF NOT EXISTS message_events_channel_seq ON message_events(channel,seq);
     INSERT OR IGNORE INTO message_events(message_id,channel,kind) SELECT id,channel,'created' FROM messages;`);
-<<<<<<< HEAD
-  app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:3 }));
-=======
   // The launcher compares this version to restart a backend left running from before an update.
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], pid:process.pid }));
->>>>>>> 112d906 (Novas Atualizações)
+  app.get('/soundboard', async (request,reply) => {
+    const {channel}=request.query;
+    if (typeof channel!=='string'||!accounts.voiceExists(channel)) return reply.code(400).send({error:'Canal inválido.'});
+    return {sounds:db.prepare('SELECT id,name,owner_id FROM soundboard WHERE channel=? ORDER BY created_at,id').all(channel).map(sound=>({id:sound.id,name:sound.name,canDelete:request.user.role==='admin'||sound.owner_id===request.user.id}))};
+  });
+  app.post('/soundboard', {bodyLimit:441044}, async (request,reply) => {
+    const channel=request.headers['x-sound-channel'], encodedName=request.headers['x-sound-name'];
+    let name; try { name=decodeURIComponent(encodedName || '').trim(); } catch { return reply.code(400).send({error:'Nome inválido.'}); }
+    if(typeof channel!=='string'||!accounts.voiceExists(channel)||name.length<1||name.length>40) return reply.code(400).send({error:'Informe o nome e o canal do áudio.'});
+    const b=request.body;
+    if(!Buffer.isBuffer(b)||b.length<46||b.length>441044||b.toString('ascii',0,4)!=='RIFF'||b.readUInt32LE(4)!==b.length-8||b.toString('ascii',8,16)!=='WAVEfmt '||b.readUInt32LE(16)!==16||b.readUInt16LE(20)!==1||b.readUInt16LE(22)!==1||b.readUInt32LE(24)!==22050||b.readUInt32LE(28)!==44100||b.readUInt16LE(32)!==2||b.readUInt16LE(34)!==16||b.toString('ascii',36,40)!=='data'||b.readUInt32LE(40)!==b.length-44||(b.length-44)%2!==0) return reply.code(400).send({error:'Áudio inválido ou com mais de 10 segundos.'});
+    if(db.prepare('SELECT COUNT(*) n FROM soundboard WHERE channel=?').get(channel).n>=50) return reply.code(409).send({error:'Este canal já tem 50 sons.'});
+    const id=randomUUID(); db.prepare('INSERT INTO soundboard VALUES(?,?,?,?,?,?)').run(id,channel,name,request.user.id,b,Date.now());
+    return reply.code(201).send({id,name,canDelete:true});
+  });
+  app.get('/soundboard/:id', async (request,reply) => {
+    const {id}=request.params, {channel}=request.query;
+    if(!UUID.test(id)||typeof channel!=='string'||!accounts.voiceExists(channel)) return reply.code(404).send({error:'Som não encontrado.'});
+    const sound=db.prepare('SELECT data FROM soundboard WHERE id=? AND channel=?').get(id,channel);
+    if(!sound)return reply.code(404).send({error:'Som não encontrado.'});
+    return reply.header('Content-Type','audio/wav').header('Content-Security-Policy',"default-src 'none'; sandbox").send(normalizeSoundboardWav(sound.data));
+  });
+  app.delete('/soundboard/:id', async (request,reply) => {
+    const sound=db.prepare('SELECT owner_id FROM soundboard WHERE id=?').get(request.params.id);
+    if(!sound)return reply.code(404).send({error:'Som não encontrado.'});
+    if(sound.owner_id!==request.user.id&&request.user.role!=='admin')return reply.code(403).send({error:'Você só pode excluir os próprios sons.'});
+    db.prepare('DELETE FROM soundboard WHERE id=?').run(request.params.id); return {ok:true};
+  });
   app.post('/token', async (request,reply) => {
     const {room='geral'}=request.body??{};
     if(typeof room!=='string'||!accounts.voiceExists(room)) return reply.code(400).send({error:'Canal de voz inválido.'});
@@ -114,13 +139,29 @@ export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger =
   app.get('/media/:id', async (request,reply) => {
     const {id}=request.params;
     if(!UUID.test(id)) return reply.code(404).send({error:'Imagem não encontrada.'});
-    const media=db.prepare('SELECT a.mime,a.data,a.animated FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE a.id=?').get(id);
+    const media=db.prepare('SELECT a.mime,a.data,a.animated FROM attachments a WHERE a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id))').get(id);
     if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
     let body=Buffer.from(media.data);
     let mime=media.mime;
     if(request.query.still==='1'&&media.animated){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).png().toBuffer();mime='image/png';}
     const extension=mime==='image/jpeg'?'jpg':mime.split('/')[1];
     return reply.header('Content-Type',mime).header('X-Content-Type-Options','nosniff').header('Content-Security-Policy',"default-src 'none'; sandbox").header('Content-Disposition',`inline; filename="imagem.${extension}"`).header('Cache-Control','no-store').send(body);
+  });
+  const online = new Map();
+  app.get('/presence', async request => {
+    const now = Date.now();
+    online.set(request.user.id, now);
+    for (const [id, seen] of online) if (now-seen > 45000) online.delete(id);
+    const rows = db.prepare('SELECT u.id,u.username,u.active,p.description,p.avatar_id FROM users u LEFT JOIN profiles p ON p.user_id=u.id').all();
+    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null });
+    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile) };
+  });
+  app.patch('/profile', async (request,reply) => {
+    const {description,avatarId} = request.body ?? {};
+    if (typeof description !== 'string' || description.length > 200 || !(avatarId === null || typeof avatarId === 'string' && UUID.test(avatarId))) return reply.code(400).send({error:'Descrição ou imagem inválida.'});
+    if (avatarId && !db.prepare('SELECT id FROM attachments WHERE id=? AND owner_id=? AND id NOT IN (SELECT attachment_id FROM message_attachments)').get(avatarId,request.user.id)) return reply.code(400).send({error:'Envie sua imagem novamente.'});
+    db.prepare('INSERT INTO profiles(user_id,description,avatar_id) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id').run(request.user.id,description.trim(),avatarId);
+    return {ok:true};
   });
   app.get('/messages', async (request,reply) => {
     reply.header('Cache-Control','no-store');
@@ -153,6 +194,7 @@ export async function createApp({ dbPath, apiKey, apiSecret, serverUrl, logger =
     }
     for(const id of attachmentIds){
       if(!db.prepare('SELECT id FROM attachments WHERE id=? AND owner_id=?').get(id,request.user.id))return reply.code(400).send({error:'Um dos anexos não foi enviado por você. Tente novamente.'});
+      if(db.prepare('SELECT user_id FROM profiles WHERE avatar_id=?').get(id))return reply.code(409).send({error:'Escolha outra imagem para a mensagem.'});
       if(db.prepare('SELECT message_id FROM message_attachments WHERE attachment_id=?').get(id))return reply.code(409).send({error:'Um dos anexos já foi publicado. Selecione o arquivo novamente.'});
     }
     const timestamp=Date.now();let messageId;

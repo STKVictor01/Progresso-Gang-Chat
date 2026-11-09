@@ -16,22 +16,23 @@ if(setupToken||inviteToken)history.replaceState(null,'',location.pathname+locati
 
 export function AccountGate({children}:{children:ReactNode}){
   const [user,setUser]=useState<User|null>(null),[ready,setReady]=useState(false),[pending,setPending]=useState(false);
+  const [linkUsed,setLinkUsed]=useState(false);
   const [site,setSite]=useState({name:'Progresso Gang - Chat',tagline:'O nosso ponto de encontro'});
   const [channels,setChannels]=useState<{voice:Channel[];text:Channel[]}>({voice:[],text:[]});
   const [error,setError]=useState('');
   async function reload(){const [nextSite,nextChannels]=await Promise.all([jsonApi('/api/site'),jsonApi('/api/channels')]);setSite(nextSite);setChannels(nextChannels);}
   function accept(data:{user:User;csrf:string}){setCsrf(data.csrf);setUser(data.user);}
-  useEffect(()=>{let active=true;Promise.all([jsonApi('/api/auth/me'),jsonApi('/api/site')]).then(async([data,nextSite])=>{if(!active)return;setSite(nextSite);setPending(data.setupPending);if(data.user){setCsrf(data.csrf);const next=await jsonApi('/api/channels');if(active){setChannels(next);setUser(data.user);}}}).catch(()=>{if(active)setError('Não foi possível acessar o servidor. Confira se o atalho do chat está aberto.');}).finally(()=>{if(active)setReady(true);});const expired=()=>{setCsrf('');setUser(null);setError('Sua sessão terminou. Entre novamente.');};window.addEventListener('pg-session-expired',expired);return()=>{active=false;window.removeEventListener('pg-session-expired',expired);};},[]);
+  useEffect(()=>{let active=true;Promise.all([jsonApi('/api/auth/me'),jsonApi('/api/site')]).then(async([data,nextSite])=>{if(!active)return;setSite(nextSite);setPending(data.setupPending);if(data.user){setCsrf(data.csrf);const next=await jsonApi('/api/channels');if(active){setChannels(next);setUser(data.user);}}}).catch(cause=>{if(active)setError(cause instanceof Error && cause.name==='Error'?cause.message:'Não foi possível acessar o servidor. Confira se o atalho do chat está aberto.');}).finally(()=>{if(active)setReady(true);});const expired=()=>{setCsrf('');setUser(null);setError('Sua sessão terminou. Entre novamente.');};window.addEventListener('pg-session-expired',expired);return()=>{active=false;window.removeEventListener('pg-session-expired',expired);};},[]);
   useEffect(()=>{document.title=site.name;},[site.name]);
   useEffect(()=>{if(!user)return;const timer=setInterval(()=>{void reload().catch(()=>{});},30000);return()=>clearInterval(timer);},[user]);
-  async function loggedIn(data:{user:User;csrf:string}){setCsrf(data.csrf);try{await reload();accept(data);setError('');}catch{setError('A conta entrou, mas os canais não carregaram. Atualize a página.');}}
+  async function loggedIn(data:{user:User;csrf:string}){setCsrf(data.csrf);setLinkUsed(true);if(data.user.owner)setPending(false);try{await reload();accept(data);setError('');}catch{setError('A conta entrou, mas os canais não carregaram. Atualize a página.');}}
   async function logout(){try{await jsonApi('/api/auth/logout','POST');setCsrf('');setUser(null);}catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível sair.');}}
   if(!ready)return <main className="account-loading" role="status">Carregando a gang…</main>;
-  if(!user)return <Login site={site} pending={pending} error={error} onLogin={loggedIn}/>;
+  if(!user)return <Login site={site} pending={pending} error={error} onLogin={loggedIn} allowLink={!linkUsed}/>;
   return <AccountsContext.Provider value={{user,...channels,site,reload,logout:()=>void logout()}}>{children}</AccountsContext.Provider>;
 }
-function Login({site,pending,error:outerError,onLogin}:{site:{name:string;tagline:string};pending:boolean;error:string;onLogin:(data:{user:User;csrf:string})=>Promise<void>}){
-  const setup=!!setupToken&&pending, register=!!inviteToken&&!setup;
+function Login({site,pending,error:outerError,onLogin,allowLink}:{site:{name:string;tagline:string};pending:boolean;error:string;onLogin:(data:{user:User;csrf:string})=>Promise<void>;allowLink:boolean}){
+  const setup=allowLink&&!!setupToken&&pending, register=allowLink&&!!inviteToken&&!setup;
   const [username,setUsername]=useState(setup?'Vitão':''),[password,setPassword]=useState(''),[confirmation,setConfirmation]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[show,setShow]=useState(false);
   async function submit(event:FormEvent){event.preventDefault();if(busy)return;if((setup||register)&&password!==confirmation){setError('As senhas precisam ser iguais.');return;}setBusy(true);setError('');try{const data=await jsonApi('/api/auth/'+(setup?'setup':register?'register':'login'),'POST',setup?{token:setupToken,password}:register?{token:inviteToken,username,password}:{username,password});await onLogin(data);}catch(cause){setError(cause instanceof Error?cause.message:'Confira sua conexão.');}finally{setBusy(false);}}

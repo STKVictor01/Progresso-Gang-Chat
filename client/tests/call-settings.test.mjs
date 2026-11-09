@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyNoiseSuppression, isListenerMuted, toggleListenerMute } from '../src/call-settings.ts';
+import { applyNoiseSuppression, isListenerMuted, listenerVolume, toggleListenerMute } from '../src/call-settings.ts';
+
+test('volume altera apenas a voz escolhida e respeita os silenciamentos', () => {
+  const volumes = { amigoA: 0.35 };
+  assert.equal(listenerVolume({}, volumes, 'amigoA', 'microphone'), 0.35);
+  assert.equal(listenerVolume({}, volumes, 'amigoA', 'screen'), 1);
+  assert.equal(listenerVolume({}, volumes, 'amigoB', 'microphone'), 1);
+  assert.equal(listenerVolume({ amigoA: { microphone: true } }, volumes, 'amigoA', 'microphone'), 0);
+  assert.equal(listenerVolume({ amigoA: { screen: true } }, volumes, 'amigoA', 'screen'), 0);
+});
 
 test('silenciar a voz nao silencia a transmissao nem outros participantes', () => {
   const original = { amigoA: { screen: true }, amigoB: { microphone: true } };

@@ -176,6 +176,9 @@ input::placeholder { color: #949387; }
 .public-chat-empty h2 { font-size: 23px; color: var(--text); font-weight: 500; margin-bottom: 10px; }
 .public-chat-empty p { font-size: 14px; }
 .public-message { display: flex; gap: 14px; margin: 0 0 24px; }
+.message-avatar { overflow:hidden; padding:0; color:inherit; cursor:pointer; }
+.message-avatar img { width:100%; height:100%; object-fit:cover; }
+.message-avatar:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 .public-message > div { min-width: 0; }
 .public-message header { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
 .public-message strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
@@ -398,6 +401,79 @@ input::placeholder { color: #949387; }
 .admin-dialog label{display:flex;flex-direction:column;gap:8px}.admin-dialog p{line-height:1.6;color:#c4bcae}.admin-dialog .button{min-height:44px}
 .admin-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 8px}.admin-tabs [aria-pressed=true]{background:#a72e28;color:#fff}
 .admin-channel-list{display:flex;gap:8px;flex-wrap:wrap}.admin-people{list-style:none;padding:0}.admin-people li{display:flex;flex-wrap:wrap;gap:12px;padding:16px 0;border-top:1px solid #55564a;align-items:center}.admin-people li span{flex-basis:100%;color:#c4bcae}
-.message-delete{margin-left:auto;background:transparent;border:1px solid #68685d;border-radius:4px;color:#eee8dc;padding:8px;min-height:44px;cursor:pointer;font:inherit;font-size:12px}.message-delete:hover{background:#8a2924}.public-message header{flex-wrap:wrap}
+.message-options-trigger { display:inline-grid; place-items:center; width:32px; height:32px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--muted); cursor:pointer; }
+.message-options-trigger:hover { background:var(--raised); color:var(--text); }
+.message-options-trigger:focus-visible, .message-options-popover button:focus-visible { outline:2px solid #d6c6a3; outline-offset:2px; }
+.message-options-popover { position:fixed; inset:auto; margin:0; padding:4px; width:min(180px,calc(100vw - 16px)); border:1px solid #68685d; border-radius:6px; background:#22231f; box-shadow:0 8px 24px #0009; }
+.message-options-popover button { width:100%; min-height:44px; padding:10px; border:0; border-radius:4px; text-align:left; color:#ffb1a7; background:transparent; cursor:pointer; font:14px 'Barlow','Segoe UI',sans-serif; }
+.message-options-popover button:hover { background:#56302a; }
+@media (pointer:coarse) { .message-options-trigger { width:44px; height:44px; } }
 @media(max-width:700px){.account-page{grid-template-columns:1fr}.account-story{padding:24px;gap:12px}.account-story h1{font-size:30px}.account-story strong,.account-star,.account-story small{display:none}.account-panel{padding:24px}.account-panel h2{font-size:30px}.admin-dialog{padding:16px}.admin-dialog>header{align-items:flex-start}.account-actions{padding:4px}.brand span{overflow-wrap:anywhere}}
 @media(max-width:767px){.community-sidebar .channel-navigation{overflow-x:auto;flex-shrink:0;padding-bottom:4px}.community-sidebar .channel{flex:none;white-space:nowrap}.page-header .invite-button{display:none}.page-header .channel-heading{min-width:0}.page-header .channel-heading strong{overflow-wrap:anywhere}.account-menu{font-size:12px}.community-sidebar{max-height:28dvh;overflow:auto;flex-shrink:0}}
+
+.online-members{margin-top:20px}.online-members ul{list-style:none;padding:0;margin:0 0 8px}.online-members li{display:flex;align-items:center;gap:10px;margin:8px 0}.online-members img{object-fit:cover}.online-members li small{display:block;color:#aaa99d;overflow-wrap:anywhere}.online-members .button{min-height:44px}.participant-audio-row input[type=range]{width:100%}.admin-dialog textarea{min-height:80px;width:100%;background:#141612;color:#eee8dc;padding:10px}@media(max-width:767px){.online-members{width:100%;display:flex;align-items:center;gap:8px;overflow:auto;margin:0}.online-members .sidebar-section-label{display:block}.online-members ul{display:flex;gap:10px;margin:0}.online-members li{white-space:nowrap}.online-members li small{display:none}}
+
+.online-list summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--muted); font-size:12px; }
+.voice-member-settings { flex:1; min-width:0; }
+.community-sidebar .members { flex:0 0 auto; max-height:35dvh; overflow:auto; }
+.voice-member-settings summary { display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer; list-style:none; border-radius:4px; }
+.voice-member-settings summary::-webkit-details-marker { display:none; }
+.voice-member-settings summary:hover, .voice-member-settings[open] summary { background:var(--raised); }
+.voice-member-settings summary:focus-visible, .online-list summary:focus-visible, .participant-audio-controls input:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.member:has(.voice-member-settings[open]) { align-items:flex-start; }
+.participant-audio-controls { display:flex; flex-direction:column; gap:8px; margin-top:8px; padding:12px; background:var(--raised); border:1px solid var(--line); border-radius:6px; }
+.participant-audio-controls label { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:12px; }
+.participant-audio-controls input { width:100%; accent-color:var(--red); cursor:pointer; }
+.participant-audio-controls .button { min-height:40px; font-size:12px; }
+.participant-audio-controls .is-muted { color:var(--red-light); border-color:#714139; }
+.participant-audio-controls small { color:var(--muted); line-height:1.4; }
+.voice-member-trigger { flex:1; min-width:0; min-height:44px; text-align:left; color:inherit; background:transparent; border:0; border-radius:4px; cursor:pointer; }
+.voice-member-trigger:hover { background:var(--raised); }
+.voice-member-trigger:focus-visible { outline:2px solid var(--gold); }
+.voice-audio-popover { --text:#eee8dc; --muted:#aaa99d; --raised:#22231f; --line:#34352f; --gold:#d6c6a3; --red:#c6352c; --red-light:#ff8b7f; position:fixed; inset:auto; margin:0; width:min(280px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:14px; color:var(--text); background:var(--raised); border:1px solid #68685d; border-radius:6px; box-shadow:0 12px 35px #000a; font-family:'Barlow','Segoe UI',sans-serif; }
+.voice-audio-popover .participant-audio-controls { margin-top:8px; padding:0; border:0; }
+.voice-audio-popover .participant-audio-controls label { line-height:1.4; }
+.voice-profile-button,.online-profile-button { background:transparent; color:inherit; border:0; cursor:pointer; padding:0; }
+.voice-profile-button { flex:none; border-radius:50%; }
+.voice-profile-button img,.profile-large-avatar { object-fit:cover; }
+.online-profile-button { display:flex; align-items:center; gap:10px; text-align:left; min-height:44px; width:100%; }
+.profile-large-avatar { width:100px; height:100px; border-radius:50%; display:grid; margin:24px auto; font-size:30px; }
+.profile-edit-trigger { width:100%; color:inherit; background:transparent; border:0; border-top:1px solid var(--line); text-align:left; cursor:pointer; }
+.profile-edit-trigger:hover { background:var(--raised); }
+.profile-edit-trigger img { object-fit:cover; }
+.profile-edit-trigger > span:nth-child(2) { min-width:0; flex:1; }
+.profile-edit-hint { color:var(--muted); font-size:11px; }
+.profile-edit-trigger:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.tile-profile-avatar { position:absolute; z-index:4; left:50%; top:50%; transform:translate(-50%,-50%); width:76px; height:76px; border:2px solid var(--gold); border-radius:50%; padding:0; overflow:hidden; background:var(--raised); cursor:pointer; }
+.tile-profile-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
+.call-controls .lk-button, .call-controls .chat-toggle, .call-controls .noise-toggle, .call-controls .leave-button { min-width:44px; min-height:44px; display:inline-flex; justify-content:center; align-items:center; padding:10px; }
+.call-controls .noise-control { width:auto; max-width:none; order:initial; }
+.call-controls .noise-toggle[aria-pressed=true] { border-color:var(--gold); }
+.call-controls .chat-toggle[aria-expanded=true] { color:var(--gold); }
+.call-controls .soundboard-trigger { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:10px; }
+.soundboard-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; }
+.soundboard-tile { display:flex; align-items:flex-start; border:1px solid #55564a; border-radius:6px; background:#292a24; }
+.soundboard-play { flex:1; min-width:0; min-height:66px; padding:10px; border:0; color:#eee8dc; background:transparent; cursor:pointer; }
+.soundboard-play span { display:block; overflow-wrap:anywhere; margin-top:6px; }
+.soundboard-play:hover { background:#45302a; }
+
+/* Keep the conversation as the main area in text channels. */
+.community-shell .main-panel:has(> .channel-chat:not(.compact-chat):not([hidden])) > .page-header { min-height:64px; padding-block:8px; }
+.channel-chat:not(.compact-chat) .public-messages { padding-top:16px; padding-bottom:16px; }
+.channel-chat:not(.compact-chat) .public-message { margin-bottom:16px; }
+.channel-chat:not(.compact-chat) .public-chat-empty { padding:20px 0; }
+.channel-chat:not(.compact-chat) .public-chat-empty h2 { font-size:18px; margin:0 0 6px; }
+.channel-chat:not(.compact-chat) .public-chat-empty p { margin:0; }
+.channel-chat:not(.compact-chat) .public-compose { padding-bottom:12px; }
+.channel-chat:not(.compact-chat) .public-compose textarea { min-height:48px; padding-block:12px; }
+.channel-chat:not(.compact-chat) .public-compose form > .button { min-height:48px; }
+.channel-chat:not(.compact-chat) .chat-sync { margin:6px 0; }
+.voice-profile-button:focus-visible,.online-profile-button:focus-visible,.tile-profile-avatar:focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
+.participant-audio-row { align-items:flex-start; flex-direction:column; }
+.participant-audio-row .participant-audio-controls { width:100%; }
+@media(max-width:767px) {
+  .community-sidebar .voice-members-heading { display:flex; width:100%; margin:0; }
+  .community-sidebar .members { display:block; width:100%; max-height:28dvh; overflow:auto; }
+  .community-sidebar .online-members { display:block; }
+  .online-list ul { display:block; }
+}

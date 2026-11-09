@@ -8,7 +8,7 @@ const setupFile = fileURLToPath(new URL('./data/owner-setup.json',import.meta.ur
 mkdirSync(fileURLToPath(new URL('./data',import.meta.url)),{recursive:true});
 let setup;
 try { setup=JSON.parse(readFileSync(setupFile,'utf8')); } catch {}
-if (!setup || setup.expiresAt < Date.now()) {
+if (!setup || typeof setup.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(setup.token) || !(setup.expiresAt > Date.now())) {
   setup={token:randomBytes(32).toString('base64url'),expiresAt:Date.now()+86400000};
   writeFileSync(setupFile,JSON.stringify(setup),{mode:0o600});
 }
@@ -19,6 +19,7 @@ const app = await createApp({
   apiSecret: process.env.LIVEKIT_API_SECRET,
   serverUrl: process.env.LIVEKIT_URL,
   ownerSetupToken: setup.token,
+  ownerSetupExpiresAt: setup.expiresAt,
   onOwnerReady: () => { try { unlinkSync(setupFile); } catch {} },
 });
 // Never leave a setup link behind once the owner has set a password.

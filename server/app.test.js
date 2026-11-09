@@ -6,9 +6,66 @@ import { join } from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { createApp as createRawApp } from './app.js';
+import { normalizeSoundboardWav } from './soundboard-audio.js';
 const options = { apiKey: 'testkey', apiSecret: randomBytes(32).toString('hex'), serverUrl: 'ws://localhost:7880', logger: false, secureCookies:false, allowedOrigins:['http://localhost:5173'] };
 
 const testPassword=randomBytes(24).toString('base64url');
+test('soundboard normalizes loud and quiet audio to -6 dB and preserves silence', () => {
+  const target = Math.floor(32767 * 10 ** (-6 / 20));
+  for (const peak of [1000,32767]) {
+    const wav=Buffer.alloc(48);
+    wav.writeInt16LE(peak,44);wav.writeInt16LE(-peak,46);
+    const result=normalizeSoundboardWav(wav);
+    assert.equal(result.readInt16LE(44),target);
+    assert.equal(result.readInt16LE(46),-target);
+    assert.equal(wav.readInt16LE(44),peak);
+  }
+  const silence=Buffer.alloc(48);
+  assert.deepEqual(normalizeSoundboardWav(silence),silence);
+});
+test('soundboard validates audio length and separates channels', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  const wav=Buffer.alloc(44+44100);
+  wav.write('RIFF',0);wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(22050,24);wav.writeUInt32LE(44100,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+  const headers={'content-type':'application/octet-stream','x-sound-channel':'geral','x-sound-name':encodeURIComponent('Som de teste')};
+  try {
+    const upload=await app.inject({method:'POST',url:'/soundboard',headers,payload:wav});
+    assert.equal(upload.statusCode,201,upload.body);
+    const id=upload.json().id;
+    assert.equal((await app.inject('/soundboard?channel=geral')).json().sounds.length,1);
+    assert.equal((await app.inject('/soundboard?channel=jogatina')).json().sounds.length,0);
+    assert.equal((await app.inject('/soundboard/'+id+'?channel=jogatina')).statusCode,404);
+    const retrieved=await app.inject('/soundboard/'+id+'?channel=geral');assert.equal(retrieved.statusCode,200);assert.deepEqual(retrieved.rawPayload,wav);
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro teste',password:testPassword}});
+    const memberHeaders={cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf};
+    assert.equal((await app.inject({method:'DELETE',url:'/soundboard/'+id,headers:memberHeaders})).statusCode,403);
+    assert.equal((await app.inject({method:'POST',url:'/soundboard',headers,payload:Buffer.alloc(50)})).statusCode,400);
+    assert.equal((await app.inject({method:'POST',url:'/soundboard',headers,payload:Buffer.alloc(441046)})).statusCode,413);
+    assert.equal((await app.inject({method:'DELETE',url:'/soundboard/'+id})).statusCode,200);
+  } finally {await app.close();}
+});
+test('online presence and profile images use authenticated owners', async () => {
+  const {default:sharp}=await import('sharp');
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const id=randomUUID();
+    const image=await sharp({create:{width:8,height:8,channels:3,background:'red'}}).png().toBuffer();
+    assert.equal((await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':id},payload:image})).statusCode,201);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'Olá gang',avatarId:id}})).statusCode,200);
+    const people=(await app.inject('/presence')).json().users;
+    assert.equal(people.length,1);assert.equal(people[0].description,'Olá gang');assert.equal(people[0].avatarUrl,'/api/media/'+id);
+    assert.equal((await app.inject('/presence')).json().profiles[0].avatarUrl,'/api/media/'+id);
+    for (const channel of ['general','voice:geral','voice:jogatina']) {
+      const message=await app.inject({method:'POST',url:'/messages',payload:{channel,text:'Mensagem de teste',clientId:randomUUID()}});
+      assert.equal(message.json().user_id,people[0].id);
+      assert.equal((await app.inject('/messages?channel='+encodeURIComponent(channel))).json().messages[0].user_id,people[0].id);
+    }
+    assert.equal((await app.inject('/media/'+id)).statusCode,200);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),attachmentIds:[id]}})).statusCode,409);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'x'.repeat(201),avatarId:null}})).statusCode,400);
+  } finally { await app.close(); }
+});
 async function createApp(options){
   const token=randomBytes(32).toString('base64url');
   const app=await createRawApp({...options,ownerSetupToken:token});
@@ -192,8 +249,6 @@ test('stored images survive restart alongside the right conversation', async () 
     assert.equal((await app.inject('/media/'+id)).statusCode,200);
   }finally{await app.close();for(const name of ['chat.sqlite','chat.sqlite-wal','chat.sqlite-shm'])rmSync(join(directory,name),{force:true});rmdirSync(directory);}
 });
-<<<<<<< HEAD
-=======
 
 test('health identifies the accounts backend so the launcher can replace older versions',async()=>{
   const app=await createRawApp({...options,dbPath:':memory:'});
@@ -207,4 +262,3 @@ test('health identifies the accounts backend so the launcher can replace older v
     assert.equal((await app.inject({method:'POST',url:'/auth/login',headers:{origin:'http://localhost:5173'},payload:{username:'ninguem',password:testPassword}})).statusCode,401);
   }finally{await app.close();}
 });
->>>>>>> 112d906 (Novas Atualizações)

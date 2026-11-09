@@ -3,6 +3,8 @@ import type { AudioSource, ListenerPreferences } from './call-settings';
 export type CallPreferences = {
   muted: ListenerPreferences;
   toggleMute: (identity: string, source: AudioSource) => void;
+  volumes: Record<string, number>;
+  setVolume: (identity: string, volume: number) => void;
   noiseSuppression: boolean;
   noiseSupported: boolean;
   noiseBusy: boolean;

@@ -4,11 +4,13 @@ export async function api(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   if (options.method && !['GET','HEAD'].includes(options.method.toUpperCase())) headers.set('x-csrf-token',csrf);
   const response = await fetch(path,{signal:AbortSignal.timeout(15000),...options,headers,credentials:'same-origin'});
-  if (response.status===401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event('pg-session-expired'));
+  if (response.status===401 && !['/api/auth/login','/api/auth/setup','/api/auth/register'].includes(path)) window.dispatchEvent(new Event('pg-session-expired'));
   return response;
 }
 export async function jsonApi(path: string, method = 'GET', body?: unknown) {
-  const response = await api(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+  const response = await api(path, body === undefined
+    ? { method }
+    : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
   if (response.ok) return data;
   // Fastify answers unknown routes with {error:'Not Found'}: the backend running on the PC is older than this page.

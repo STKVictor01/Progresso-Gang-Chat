@@ -9,6 +9,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+      - name: Detectar conflitos de Git que ficaram nos arquivos
+        run: |
+          if git grep -nE '^(<<<<<<< |>>>>>>> )' -- '*.js' '*.cjs' '*.ts' '*.tsx' '*.md'; then
+            exit 1
+          fi
       - name: Baixar Gitleaks oficial e verificar integridade
         shell: bash
         run: |

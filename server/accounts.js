@@ -11,7 +11,7 @@ const validPassword = value => typeof value === 'string' && value.length >= 12 &
 const passwordHash = value => argon2.hash(value, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUser = user => ({ id: user.id, name: user.username, role: user.role, owner: Boolean(user.is_owner) });
 
-export async function installAccounts(app, db, { ownerSetupToken, secureCookies = true, allowedOrigins, onOwnerReady = () => {} }) {
+export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpiresAt = Date.now()+86400000, secureCookies = true, allowedOrigins, onOwnerReady = () => {} }) {
   db.exec(`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL, username_key TEXT NOT NULL UNIQUE,
     password_hash TEXT, role TEXT NOT NULL CHECK(role IN ('admin','member')),
@@ -25,7 +25,7 @@ export async function installAccounts(app, db, { ownerSetupToken, secureCookies 
   CREATE TABLE IF NOT EXISTS site_settings (id INTEGER PRIMARY KEY CHECK(id=1), name TEXT NOT NULL, tagline TEXT NOT NULL);
   INSERT OR IGNORE INTO site_settings VALUES(1,'Progresso Gang - Chat','O nosso ponto de encontro');`);
   if (!db.prepare('SELECT id FROM users WHERE is_owner=1').get()) db.prepare('INSERT INTO users VALUES(?,?,?,?,?,1,1,?)').run(randomUUID(),'Vitão',key('Vitão'),null,'admin',Date.now());
-  if (ownerSetupToken && !db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get().password_hash) db.prepare('INSERT OR REPLACE INTO owner_setup VALUES(1,?,?)').run(digest(ownerSetupToken),Date.now()+86400000);
+  if (ownerSetupToken && !db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get().password_hash) db.prepare('INSERT OR REPLACE INTO owner_setup VALUES(1,?,?)').run(digest(ownerSetupToken),ownerSetupExpiresAt);
   db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
   await app.register(cookie);
   await app.register(rateLimit, { global: false });

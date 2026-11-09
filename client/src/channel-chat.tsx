@@ -1,13 +1,36 @@
 import { api } from './api';
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ClipboardEvent, FormEvent } from 'react';
+import { usePresence } from './presence';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean };
-type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; canDelete: boolean; attachments?: Attachment[] };
+type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
 type PendingFile = { id: string; file: File; preview: string };
 const LIMIT = 8 * 1024 * 1024;
 const ACCEPT = ['image/png','image/jpeg','image/gif','image/webp'];
 function ClipIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L13 2" /><path d="m6 15 9-9" /></svg>; }
+function MessageAvatar({message}:{message:TextMessage}) {
+  const {profiles,showProfile}=usePresence();
+  const profile=profiles.find(person=>person.id===message.user_id);
+  const [failedUrl,setFailedUrl]=useState<string | null>(null);
+  const initials=message.name.slice(0,2).toLocaleUpperCase('pt-BR');
+  if (!profile) return <span className="member-avatar" aria-hidden="true">{initials}</span>;
+  return <button className="member-avatar message-avatar" onClick={()=>showProfile(profile.id)} aria-label={'Ver perfil de '+message.name} title={'Ver perfil de '+message.name}>{profile.avatarUrl && failedUrl!==profile.avatarUrl ? <img src={profile.avatarUrl} alt="" onError={()=>setFailedUrl(profile.avatarUrl)} /> : initials}</button>;
+}
+function MessageOptions({message, onDelete}:{message:TextMessage; onDelete:()=>void}) {
+  const menu=useRef<HTMLDivElement>(null);
+  function toggle(event:React.MouseEvent<HTMLButtonElement>) {
+    const panel=menu.current;
+    if(!panel)return;
+    if(panel.matches(':popover-open')) {panel.hidePopover();return;}
+    const rect=event.currentTarget.getBoundingClientRect();
+    panel.style.left=Math.max(8,Math.min(rect.right-180,window.innerWidth-188))+'px';
+    panel.style.top=Math.max(8,Math.min(rect.bottom+4,window.innerHeight-60))+'px';
+    panel.showPopover();
+  }
+  return <><button className="message-options-trigger" onClick={toggle} aria-label={'Mais opções para mensagem de '+message.name} title="Mais opções" aria-haspopup="dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>{createPortal(<div className="message-options-popover" ref={menu} popover="auto" role="dialog" aria-label="Opções da mensagem"><button onClick={()=>{menu.current?.hidePopover();onDelete();}}>Excluir mensagem</button></div>,document.body)}</>;
+}
 function ImageAttachment({ attachment, author, reducedMotion, onOpen }: { attachment: Attachment; author: string; reducedMotion: boolean; onOpen: (source: string, attachment: Attachment) => void }) {
   const [playing, setPlaying] = useState<boolean | null>(null);
   const animate = playing ?? !reducedMotion;
@@ -117,14 +140,14 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível excluir.');}
   }
   return <section className={'public-chat channel-chat '+(compact?'compact-chat':'')} hidden={!visible} aria-label={compact?'Chat da call '+title:'Chat '+title}>
-    <div className="text-chat-heading">{compact?<div className="call-chat-title"><h2>Chat · {title}</h2><button className="icon-button" onClick={onClose} aria-label="Fechar chat da call">×</button></div>:<><span className="eyebrow">O PONTO DE ENCONTRO DA GANG</span><h1>O salve é pra todo mundo.</h1></>}<p>{compact?'Conversa deste canal, separada do #geral.':'Texto, imagens e GIFs. O papo continua com ou sem voz.'}</p></div>
+    {compact && <div className="text-chat-heading"><div className="call-chat-title"><h2>Chat · {title}</h2><button className="icon-button" onClick={onClose} aria-label="Fechar chat da call">×</button></div><p>Conversa deste canal, separada do #geral.</p></div>}
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map(message=><article key={message.id} className="public-message"><span className="member-avatar" aria-hidden="true">{message.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<button className="message-delete" onClick={()=>void removeMessage(message)} aria-label={'Excluir mensagem de '+message.name}>Excluir</button>}</header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=><ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>)}</div>}</div></article>)}<div ref={bottom}/>
+      {messages.map(message=><article key={message.id} className="public-message"><MessageAvatar message={message}/><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<MessageOptions message={message} onDelete={()=>void removeMessage(message)} />}</header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=><ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>)}</div>}</div></article>)}<div ref={bottom}/>
     </div>
     <div className="public-compose"><p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}><img src={item.preview} alt={'Prévia de '+item.file.name}/><span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
-      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:2} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
+      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
       <div className="compose-extras"><input ref={fileInput} type="file" accept={ACCEPT.join(',')} multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label={compact?'Anexar imagem ou GIF na call':'Anexar imagem ou GIF'}><ClipIcon/>Imagem / GIF</button><small>Até 8 MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>
     <dialog className="image-dialog" ref={dialog} onCancel={()=>setViewer(null)} onClose={()=>setViewer(null)} onClick={event=>{if(event.target===event.currentTarget)setViewer(null);}} aria-label="Imagem ampliada">{viewer&&<><button className="button subtle image-dialog-close" onClick={()=>setViewer(null)}>Fechar imagem</button><img src={viewer.source} alt={viewer.attachment.animated?'GIF ampliado':'Imagem ampliada'}/></>}</dialog>

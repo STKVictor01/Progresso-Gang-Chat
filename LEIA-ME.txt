@@ -1,17 +1,10 @@
-Progresso Gang - Chat: correcao do "Not Found" no login
+Progresso Gang - Chat
 
-1. Feche o navegador do chat.
-2. Copie o CONTEUDO desta pasta para dentro da pasta do projeto no PC
-   (a que tem client, server e scripts) e aceite substituir os arquivos.
-3. Abra o atalho "Progresso Gang Chat". Ele encerra o servidor antigo,
-   inicia o novo e abre o link para definir a senha do Vitao.
-4. Depois, em Conta > Administrar > Pessoas e convites, gere convites
-   para os amigos.
+1. No PC que hospeda o chat, conecte o Tailscale.
+2. Abra o atalho "Progresso Gang Chat". Se a conta Vitão ainda não
+   tiver senha, a página vai pedir para você defini-la.
+3. Em Conta > Administrar > Pessoas e convites, gere um convite
+   para cada amigo com acesso à rede privada do Tailscale.
 
-Arquivos alterados:
-  - COMO-ABRIR.md
-  - README.md
-  - client/src/api.ts
-  - scripts/abrir-chat.cjs
-  - server/app.js
-  - server/app.test.js
+O guia completo está em COMO-ABRIR.md. O histórico fica em
+server/data/chat.sqlite; faça backup antes de qualquer atualização.

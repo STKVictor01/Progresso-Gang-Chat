@@ -8,11 +8,9 @@
 
 Os servicos iniciados ficam em segundo plano enquanto este PC estiver ligado. O atalho e manual: ele nao altera a inicializacao automatica do Windows.
 
-<<<<<<< HEAD
-=======
 ## Contas e convites
 
-- **Primeira vez (Vitao):** depois de atualizar, abra o atalho **Progresso Gang Chat**. Ele abre o site com um link de configuracao privado, valido por 24 horas, para definir a senha da conta de administrador **Vitao**. O link so funciona uma vez e e apagado depois que a senha e definida. Nao compartilhe esse link.
+- **Primeira vez (Vitão):** abra o atalho **Progresso Gang Chat**. Ele abre uma configuração privada para definir a senha de **Vitão**, o administrador. O link vale por 24 horas, funciona uma vez e deixa de existir depois da ativação. Não compartilhe esse link.
 - Se o link expirar, basta abrir o atalho novamente para gerar outro (enquanto a senha ainda nao tiver sido definida).
 - **Amigos:** em **Conta · Vitao > Administrar > Pessoas e convites**, clique em **Gerar convite** e envie o link para uma pessoa. Cada convite vale para uma conta e expira em 24 horas. A conta comeca como membro.
 - Senhas tem de 12 a 128 caracteres. Em **Minha senha** e possivel troca-la; as outras sessoes da conta sao encerradas.
@@ -23,7 +21,6 @@ Os servicos iniciados ficam em segundo plano enquanto este PC estiver ligado. O 
 
 Isso acontece quando o backend antigo, iniciado antes da atualizacao, continua aberto. Use o atalho novamente: ele detecta a versao antiga, encerra o processo e inicia a versao atual (registro em `server/logs/launcher.log`). Se ainda falhar, reinicie o PC e abra o atalho.
 
->>>>>>> 112d906 (Novas Atualizações)
 ## Canais
 
 - **#geral**: conversa por texto. Entrar na comunidade nao conecta a uma chamada nem pede acesso ao microfone.
@@ -36,11 +33,7 @@ Clicar em **#geral** abre o texto e mantem a voz conectada. **Sair do canal** en
 
 ## Historico e backup
 
-<<<<<<< HEAD
-As mensagens novas do #geral ficam em `server/data/chat.sqlite`. As mensagens do antigo chat temporario de voz nao podem ser recuperadas automaticamente. Para um backup completo, pare o backend antes de copiar a pasta `server/data`; nao substitua o banco com o servidor ligado. As configuracoes secretas ficam em `server/.env` e `server/livekit.tailscale.yaml`.
-=======
 As mensagens novas do #geral ficam em `server/data/chat.sqlite`. As mensagens do antigo chat temporario de voz nao podem ser recuperadas automaticamente. Para um backup completo, pare o backend antes de copiar a pasta `server/data`; nao substitua o banco com o servidor ligado. As contas, sessoes e convites tambem ficam nesse banco. As configuracoes secretas ficam em `server/.env` e `server/livekit.tailscale.yaml`.
->>>>>>> 112d906 (Novas Atualizações)
 
 Registros de inicializacao e de falhas: `server/logs/launcher.log`. Se a abertura falhar, o atalho mostra uma orientacao e pode ser usado novamente depois de conectar o Tailscale.
 
@@ -66,8 +59,4 @@ Mantenha este PC acordado para os amigos acessarem. Cada amigo usa o site com se
 - O botao **Chat da call** abre a conversa do canal de voz em que voce esta. Geral e Jogatina tem historicos diferentes, separados do #geral. Esses historicos continuam salvos depois de sair da chamada.
 - O texto e os anexos ficam no mesmo banco `server/data/chat.sqlite`; o backup da pasta data inclui ambos. As imagens sao verificadas e processadas no servidor antes de serem publicadas.
 - O limite inicial e de 512 MB de anexos armazenados. Atingir esse limite impede novos anexos, mas nao o envio de texto. Anexos enviados mas nao publicados em nenhuma mensagem por mais de 24 horas sao descartados pelo servidor.
-<<<<<<< HEAD
-- Ainda nao ha contas de usuario. A rede Tailscale continua controlando o acesso ao site; conversas separadas nao representam permissoes individuais por conta.
-=======
-- Cada mensagem fica ligada a conta de quem enviou. A pessoa pode excluir as proprias mensagens; administradores podem excluir qualquer mensagem.
->>>>>>> 112d906 (Novas Atualizações)
+- Mensagens novas ficam ligadas à conta de quem enviou. Membros podem excluir as próprias mensagens; administradores podem excluir qualquer mensagem, inclusive as antigas que não tinham conta vinculada.

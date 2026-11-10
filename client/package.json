@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test tests/call-settings.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@livekit/components-react": "^2.9.25",
     "@livekit/components-styles": "^1.2.0",
     "livekit-client": "^2.23.0",

@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { AudioSource, ListenerPreferences } from './call-settings';
+import type { VoiceEffect } from './voice-effects';
 export type CallPreferences = {
   muted: ListenerPreferences;
   toggleMute: (identity: string, source: AudioSource) => void;
@@ -10,6 +11,10 @@ export type CallPreferences = {
   noiseBusy: boolean;
   noiseStatus: string;
   toggleNoise: () => void;
+  voiceEffect: VoiceEffect;
+  setVoiceEffect: (effect: VoiceEffect) => void;
+  voiceEffectStatus: string;
+  voiceEffectBusy: boolean;
 };
 export const PreferencesContext = createContext<CallPreferences | null>(null);
 export function useCallPreferences() {

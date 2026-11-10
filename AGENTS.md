@@ -1,6 +1,6 @@
 # Convenções do repositório
 
-Este projeto é o Progresso Gang - Chat. O cliente React/TypeScript e Vite está em `client/`; a API Fastify e o banco SQLite ficam em `server/`. O LiveKit atende as chamadas, e `scripts/abrir-chat.cjs` inicia os serviços no Windows com acesso privado via Tailscale.
+Este projeto é o Progresso Gang - Chat. O cliente React/TypeScript e Vite está em `client/`; a API Fastify fica em `server/` e usa PostgreSQL no Supabase quando `PG_CHAT_DATABASE=postgres`, ou SQLite local quando não configurado. O LiveKit atende as chamadas, e `scripts/abrir-chat.cjs` inicia os serviços no Windows com acesso privado via Tailscale.
 
 ## Alterações
 
@@ -12,7 +12,10 @@ Este projeto é o Progresso Gang - Chat. O cliente React/TypeScript e Vite está
 
 ## Dados e segurança
 
-- `server/data/chat.sqlite` contém dados reais, incluindo mensagens, anexos, contas e sons. Antes de operações que possam alterar ou migrar o banco real, faça um backup consistente do SQLite. Use bancos isolados nos testes e preserve os arquivos originais.
+- O PostgreSQL é o banco ativo quando configurado; contém mensagens, anexos, contas e sons. `server/data/chat.sqlite` é o banco local anterior e pode estar desatualizado. Antes de migrar ou alterar dados reais, faça um backup consistente do banco ativo e valide sua restauração. Use bancos isolados nos testes e preserve os arquivos originais.
+- As tabelas do chat ficam no esquema privado `progresso_gang`, sem acesso `anon` ou `authenticated` ao esquema; preserve a proteção por RLS. A conexão PostgreSQL deve validar o certificado em `server/data/supabase-ca.crt`. Nunca desative a verificação TLS para contornar erros.
+- O Chat Geral aceita anexos de até 100 MB; outros canais de conversa e fotos de perfil mantêm o limite de 8 MB para imagens. Arquivos que não são imagens devem ser servidos como download, com tipo genérico e sem execução no navegador.
+- Os logs administrativos ficam em `server/logs/activity.jsonl`, no PC do servidor, e são restritos a administradores. Registre somente eventos e metadados necessários; não grave conteúdo de mensagens, senhas, tokens ou anexos.
 - Nunca inclua senhas, tokens, chaves LiveKit, links privados de configuração, arquivos `.env`, banco de dados, logs ou configurações privadas no Git, em exemplos ou em saídas de comandos. Não revele seus valores ao inspecionar erros.
 - Mantenha a autenticação, autorização, proteção contra CSRF, validação de arquivos e separação de canais nas alterações de API. Use os mecanismos existentes para sessões e senhas.
 - Não enfraqueça a configuração de rede privada, as regras do Gitleaks ou os arquivos ignorados para contornar erros. Investigue detecções e trate segredos expostos como comprometidos.

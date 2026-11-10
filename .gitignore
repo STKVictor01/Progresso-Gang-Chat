@@ -15,6 +15,9 @@
 
 # Conversas e bancos de dados locais
 **/data/
+/supabase/.temp/
+/supabase/.branches/
+/server/.work-supabase/
 *.sqlite
 *.sqlite-*
 *.db

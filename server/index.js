@@ -13,8 +13,12 @@ if (!setup || typeof setup.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(set
   writeFileSync(setupFile,JSON.stringify(setup),{mode:0o600});
 }
 
+if (process.env.PG_CHAT_DATABASE === 'postgres' && !process.env.DATABASE_URL) throw Error('A conexão com o banco não está configurada.');
 const app = await createApp({
   dbPath: fileURLToPath(new URL('./data/chat.sqlite', import.meta.url)),
+  databaseUrl: process.env.PG_CHAT_DATABASE === 'postgres' ? process.env.DATABASE_URL : undefined,
+  certificatePath: fileURLToPath(new URL('./data/supabase-ca.crt', import.meta.url)),
+  activityLogPath: fileURLToPath(new URL('./logs/activity.jsonl', import.meta.url)),
   apiKey: process.env.LIVEKIT_API_KEY,
   apiSecret: process.env.LIVEKIT_API_SECRET,
   serverUrl: process.env.LIVEKIT_URL,

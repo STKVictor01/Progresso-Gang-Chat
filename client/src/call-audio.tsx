@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PreferencesContext, useCallPreferences } from './call-preferences';
 import { AudioTrack, useLocalParticipant, useTracks } from '@livekit/components-react';
@@ -6,6 +6,8 @@ import { LocalAudioTrack, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
 import { applyNoiseSuppression, isListenerMuted, listenerVolume, readNoisePreference, toggleListenerMute } from './call-settings';
 import type { ListenerPreferences } from './call-settings';
+import { createVoiceProcessor } from './voice-effects';
+import type { VoiceEffect } from './voice-effects';
 
 export function CallPreferencesProvider({ children }: { children: ReactNode }) {
   const { microphoneTrack, isMicrophoneEnabled } = useLocalParticipant();
@@ -15,8 +17,42 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
   const [noiseBusy, setNoiseBusy] = useState(false);
   const [applied, setApplied] = useState<boolean | undefined>();
   const [error, setError] = useState('');
+  const [voiceEffect, setVoiceEffect] = useState<VoiceEffect>('natural');
+  const [voiceEffectStatus, setVoiceEffectStatus] = useState('Voz natural.');
+  const [voiceEffectBusy, setVoiceEffectBusy] = useState(false);
+  const voiceEffectQueue = useRef<Promise<void>>(Promise.resolve());
   const noiseSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getSupportedConstraints().noiseSuppression;
   const track = microphoneTrack?.track;
+  useEffect(() => {
+    let cancelled = false;
+    if (!(track instanceof LocalAudioTrack) || !isMicrophoneEnabled || track.mediaStreamTrack.readyState === 'ended') {
+      const timer = setTimeout(() => {
+        setVoiceEffectBusy(false);
+        setVoiceEffectStatus(voiceEffect === 'natural' ? 'Voz natural.' : 'O efeito será aplicado ao ligar o microfone.');
+      }, 0);
+      return () => { cancelled = true; clearTimeout(timer); };
+    }
+    const audioTrack = track;
+    voiceEffectQueue.current = voiceEffectQueue.current.catch(() => {}).then(async () => {
+      if (cancelled) return;
+      setVoiceEffectBusy(true);
+      try {
+        if (voiceEffect === 'natural') {
+          if (audioTrack.getProcessor()?.name === 'pg-voice-effect') await audioTrack.stopProcessor();
+        } else {
+          const processor = createVoiceProcessor(voiceEffect);
+          await audioTrack.setProcessor(processor);
+          if (cancelled && audioTrack.getProcessor() === processor) await audioTrack.stopProcessor();
+        }
+        if (!cancelled) setVoiceEffectStatus(voiceEffect === 'natural' ? 'Voz natural.' : 'Efeito ativo no seu microfone.');
+      } catch {
+        if (!cancelled) setVoiceEffectStatus('Não foi possível aplicar o efeito. Selecione voz natural ou tente novamente.');
+      } finally {
+        if (!cancelled) setVoiceEffectBusy(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [track, isMicrophoneEnabled, voiceEffect]);
   useEffect(() => {
     if (!(track instanceof LocalAudioTrack) || track.mediaStreamTrack.readyState === 'ended') return;
     let cancelled = false;
@@ -33,7 +69,7 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('pg-noise-suppression', String(next)); } catch { /* Storage is optional. */ }
   }
   const noiseStatus = !noiseSupported ? 'Este navegador não oferece esse filtro.' : error || (noiseBusy ? 'Ajustando filtro…' : !track || track.mediaStreamTrack.readyState === 'ended' ? 'A opção será aplicada ao ligar o microfone.' : !noiseSuppression ? 'Supressão de ruído desligada.' : applied === true ? 'Redução de ruído ativa no microfone.' : applied === false ? 'O navegador não ativou a redução de ruído.' : 'Redução de ruído solicitada ao navegador.');
-  return <PreferencesContext.Provider value={{ muted, volumes, setVolume: (identity, volume) => setVolumes(previous => ({...previous, [identity]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, identity, source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise }}>{children}</PreferencesContext.Provider>;
+  return <PreferencesContext.Provider value={{ muted, volumes, setVolume: (identity, volume) => setVolumes(previous => ({...previous, [identity]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, identity, source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
 }
 export function PersonalAudioRenderer() {
   const { muted, volumes } = useCallPreferences();
@@ -71,4 +107,17 @@ export function NoiseSuppressionControl() {
   const preferences = useCallPreferences();
   const label = preferences.noiseSupported ? (preferences.noiseSuppression ? 'Desligar redução de ruídos' : 'Ligar redução de ruídos') : 'Redução de ruídos indisponível';
   return <div className="noise-control"><button className="button noise-toggle" aria-label={label} title={label + ' — ' + preferences.noiseStatus} aria-pressed={preferences.noiseSupported && preferences.noiseSuppression} disabled={!preferences.noiseSupported || preferences.noiseBusy} onClick={preferences.toggleNoise} aria-describedby="noise-status"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4M22 11v2"/>{!preferences.noiseSuppression && <path d="M3 3l18 18"/>}</svg></button><span id="noise-status" className="sr-only" role="status">{preferences.noiseStatus}</span></div>;
+}
+
+export function VoiceEffectControl() {
+  const preferences = useCallPreferences();
+  const [open,setOpen] = useState(false);
+  const choices: {id:VoiceEffect;name:string;description:string}[] = [
+    {id:'natural',name:'Natural',description:'Sua voz sem efeito'},
+    {id:'robo',name:'Robô',description:'Voz eletrônica'},
+    {id:'radio',name:'Rádio',description:'Som de comunicação pelo rádio'},
+    {id:'bebe',name:'Bebê',description:'Voz bem mais aguda'},
+    {id:'anime',name:'Anime',description:'Voz aguda de desenho'},
+  ];
+  return <><button className="button voice-effect-trigger" title="Efeitos de voz" aria-label="Abrir efeitos de voz" onClick={()=>setOpen(true)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M9 22h6M19 2l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg></button>{open && <dialog className="admin-dialog voice-effects-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setOpen(false)} onClose={()=>setOpen(false)} aria-label="Efeitos de voz"><header><h2>Efeitos de voz</h2><button className="button subtle" onClick={()=>setOpen(false)}>Fechar</button></header><p>Escolha como sua voz será ouvida na chamada.</p><fieldset disabled={preferences.voiceEffectBusy}><legend>Seu microfone</legend><div className="voice-effects-grid">{choices.map(choice=><label key={choice.id} className="voice-effect-choice"><input type="radio" name="voice-effect" checked={preferences.voiceEffect===choice.id} onChange={()=>preferences.setVoiceEffect(choice.id)}/><span><strong>{choice.name}</strong><small>{choice.description}</small></span></label>)}</div></fieldset><p role="status">{preferences.voiceEffectBusy ? 'Aplicando efeito…' : preferences.voiceEffectStatus}</p></dialog>}</>;
 }

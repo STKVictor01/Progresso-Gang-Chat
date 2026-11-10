@@ -4,11 +4,12 @@ import { createPortal } from 'react-dom';
 import type { ClipboardEvent, FormEvent } from 'react';
 import { usePresence } from './presence';
 
-type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean };
+type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
-type PendingFile = { id: string; file: File; preview: string };
-const LIMIT = 8 * 1024 * 1024;
+type PendingFile = { id: string; file: File; preview: string | null };
+const MB = 1024 * 1024;
 const ACCEPT = ['image/png','image/jpeg','image/gif','image/webp'];
+function isImageFile(file: File) { return ACCEPT.includes(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name); }
 function ClipIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L13 2" /><path d="m6 15 9-9" /></svg>; }
 function MessageAvatar({message}:{message:TextMessage}) {
   const {profiles,showProfile}=usePresence();
@@ -37,10 +38,16 @@ function ImageAttachment({ attachment, author, reducedMotion, onOpen }: { attach
   const source = attachment.animated && !animate ? attachment.posterUrl || attachment.url : attachment.url;
   return <figure className="message-attachment"><button className="attachment-open" onClick={() => onOpen(source, attachment)} aria-label={'Ampliar '+(attachment.animated?'GIF':'imagem')+' de '+author}><img src={source} alt={(attachment.animated?'GIF enviado por ':'Imagem enviada por ')+author} width={attachment.width} height={attachment.height} loading="lazy" decoding="async" />{attachment.animated && <span className="gif-badge">GIF</span>}</button>{attachment.animated && <button className="gif-play-toggle" aria-pressed={animate} onClick={() => setPlaying(!animate)}>{animate?'Pausar GIF':'Reproduzir GIF'}</button>}</figure>;
 }
+function FileAttachment({attachment}:{attachment:Attachment}) {
+  const filename=attachment.filename || 'Arquivo';
+  const size=attachment.size >= MB ? (attachment.size/MB).toFixed(1)+' MB' : Math.max(1,Math.ceil(attachment.size/1024))+' KB';
+  return <a className="file-attachment" href={attachment.url} download={filename} aria-label={'Baixar '+filename}><span className="file-attachment-icon" aria-hidden="true"><ClipIcon /></span><span><strong>{filename}</strong><small>{size} · Baixar arquivo</small></span><span aria-hidden="true">↓</span></a>;
+}
 async function requestError(response: Response, fallback: string) {
   try { const body = await response.json(); return typeof body.error === 'string' ? body.error : fallback; } catch { return fallback; }
 }
 export function ChannelChat({ name, channel, title, compact = false, visible = true, onClose }: { name: string; channel: string; title: string; compact?: boolean; visible?: boolean; onClose?: () => void }) {
+  const limitMb = channel === 'general' ? 100 : 8;
   const inputId = useId();
   const [messages, setMessages] = useState<TextMessage[]>([]);
   const [draft, setDraft] = useState(() => { try { return sessionStorage.getItem('pg-draft-'+channel) || ''; } catch { return ''; } });
@@ -66,7 +73,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { try { sessionStorage.setItem('pg-draft-'+channel, draft); } catch { /* Draft storage is optional. */ } }, [draft, channel]);
   useEffect(() => { fileCache.current = files; }, [files]);
-  useEffect(() => () => { sendController.current?.abort(); fileCache.current.forEach(item => URL.revokeObjectURL(item.preview)); }, []);
+  useEffect(() => () => { sendController.current?.abort(); fileCache.current.forEach(item => item.preview && URL.revokeObjectURL(item.preview)); }, []);
   useEffect(() => { const query = window.matchMedia('(prefers-reduced-motion: reduce)'); const changed = () => setReducedMotion(query.matches); query.addEventListener('change',changed); return () => query.removeEventListener('change',changed); }, []);
   useEffect(() => {
     if (viewer && dialog.current && !dialog.current.open) dialog.current.showModal();
@@ -95,15 +102,15 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     if (sending) return;
     const accepted: PendingFile[] = []; const errors: string[] = [];
     for (const file of incoming) {
-      if (!ACCEPT.includes(file.type) && !/\.(png|jpe?g|webp|gif)$/i.test(file.name)) { errors.push('Use imagens PNG, JPG, WebP ou GIF.'); continue; }
-      if (file.size>LIMIT) {errors.push('Cada arquivo pode ter até 8 MB.');continue;}
+      if (channel !== 'general' && !isImageFile(file)) { errors.push('Use imagens PNG, JPG, WebP ou GIF.'); continue; }
+      if (file.size>limitMb*MB) {errors.push(`Cada arquivo pode ter até ${limitMb} MB.`);continue;}
       if (files.length+accepted.length>=4) {errors.push('Envie até quatro anexos por mensagem.');break;}
-      accepted.push({id:crypto.randomUUID(),file,preview:URL.createObjectURL(file)});
+      accepted.push({id:crypto.randomUUID(),file,preview:isImageFile(file)?URL.createObjectURL(file):null});
     }
     setError([...new Set(errors)].join(' ')); setFiles(previous=>[...previous,...accepted]);
   }
-  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) { const images=Array.from(event.clipboardData.files).filter(file=>file.type.startsWith('image/')); if(images.length){event.preventDefault();addFiles(images);} }
-  function removeFile(id:string) { const item=files.find(file=>file.id===id);if(item)URL.revokeObjectURL(item.preview);uploaded.current.delete(id);setFiles(previous=>previous.filter(file=>file.id!==id)); }
+  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) { const files=Array.from(event.clipboardData.files).filter(file=>channel==='general'||file.type.startsWith('image/')); if(files.length){event.preventDefault();addFiles(files);} }
+  function removeFile(id:string) { const item=files.find(file=>file.id===id);if(item?.preview)URL.revokeObjectURL(item.preview);uploaded.current.delete(id);setFiles(previous=>previous.filter(file=>file.id!==id)); }
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;
     setSending(true);setError('');const controller=new AbortController();sendController.current=controller;
@@ -114,7 +121,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       for(let index=0;index<files.length;index++){
         const item=files[index];setProgress('Enviando anexo '+(index+1)+' de '+files.length+'…');
         if(!uploaded.current.has(item.id)){
-          const response=await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});
+          const response=await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id,'x-upload-channel':channel,'x-upload-name':encodeURIComponent(item.file.name)},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(channel==='general'?600000:60000)])});
           if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar o anexo.'));
           uploaded.current.set(item.id,await response.json() as Attachment);
         }
@@ -125,7 +132,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
       setMessages(previous=>[...new Map([...previous,sent].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));
-      files.forEach(item=>URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');pending.current=null;atBottom.current=true;
+      files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');pending.current=null;atBottom.current=true;
     }catch(cause){if(!controller.signal.aborted)setError(cause instanceof Error && cause.name!=='TypeError' && cause.name!=='TimeoutError' ? cause.message : 'A conexão falhou. Sua mensagem continua aqui para tentar novamente.');}
     finally{setSending(false);setProgress('');sendController.current=null;}
   }
@@ -144,11 +151,11 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map(message=><article key={message.id} className="public-message"><MessageAvatar message={message}/><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<MessageOptions message={message} onDelete={()=>void removeMessage(message)} />}</header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=><ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>)}</div>}</div></article>)}<div ref={bottom}/>
+      {messages.map(message=><article key={message.id} className="public-message"><MessageAvatar message={message}/><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<MessageOptions message={message} onDelete={()=>void removeMessage(message)} />}</header>{message.text&&<p>{message.text}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}</div></article>)}<div ref={bottom}/>
     </div>
-    <div className="public-compose"><p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}><img src={item.preview} alt={'Prévia de '+item.file.name}/><span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
+    <div className="public-compose"><p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
       <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
-      <div className="compose-extras"><input ref={fileInput} type="file" accept={ACCEPT.join(',')} multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label={compact?'Anexar imagem ou GIF na call':'Anexar imagem ou GIF'}><ClipIcon/>Imagem / GIF</button><small>Até 8 MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
+      <div className="compose-extras"><input ref={fileInput} type="file" accept={channel==='general'?undefined:ACCEPT.join(',')} multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label={compact?'Anexar imagem ou GIF na call':channel==='general'?'Anexar arquivo':'Anexar imagem ou GIF'}><ClipIcon/>{channel==='general'?'Anexar arquivo':'Imagem / GIF'}</button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>
     <dialog className="image-dialog" ref={dialog} onCancel={()=>setViewer(null)} onClose={()=>setViewer(null)} onClick={event=>{if(event.target===event.currentTarget)setViewer(null);}} aria-label="Imagem ampliada">{viewer&&<><button className="button subtle image-dialog-close" onClick={()=>setViewer(null)}>Fechar imagem</button><img src={viewer.source} alt={viewer.attachment.animated?'GIF ampliado':'Imagem ampliada'}/></>}</dialog>
   </section>;

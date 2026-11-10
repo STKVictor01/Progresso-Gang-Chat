@@ -45,6 +45,61 @@ test('soundboard validates audio length and separates channels', async () => {
     assert.equal((await app.inject({method:'DELETE',url:'/soundboard/'+id})).statusCode,200);
   } finally {await app.close();}
 });
+test('voice presence reports actual participants once per account and protects the endpoint', async () => {
+  let ownerId, memberId;
+  const roomService = {
+    listRooms: async names => { assert.ok(names.includes('geral')); return [{name:'geral'}, {name:'outside'}]; },
+    listParticipants: async room => { assert.equal(room,'geral'); return [ownerId+':first',ownerId+':second',memberId+':one','unknown:one'].map(identity=>({identity})); },
+  };
+  const app=await createApp({...options,dbPath:':memory:',roomService});
+  try {
+    ownerId=(await app.inject('/presence')).json().users[0].id;
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',headers:{cookie:''},payload:{token:invite.json().token,username:'Pessoa B',password:testPassword}});
+    assert.equal(member.statusCode,201); memberId=member.json().user.id;
+    assert.equal((await app.inject({url:'/voice-presence',headers:{cookie:''}})).statusCode,401);
+    const presence=await app.inject('/voice-presence');
+    assert.equal(presence.statusCode,200);
+    assert.deepEqual(presence.json().channels,{geral:[ownerId,memberId],jogatina:[]});
+  } finally { await app.close(); }
+});
+test('voice presence reports an unavailable service instead of empty channels', async () => {
+  const app=await createApp({...options,dbPath:':memory:',roomService:{listRooms:async()=>{throw Error('unavailable');}}});
+  try { assert.equal((await app.inject('/voice-presence')).statusCode,503); }
+  finally { await app.close(); }
+});
+test('logs são restritos a administradores e não guardam texto das mensagens', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const secretText='conteúdo privado da mensagem';
+    const message=await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),text:secretText,channel:'general'}});
+    assert.equal(message.statusCode,201);
+    assert.equal((await app.inject({method:'DELETE',url:'/messages/'+message.json().id})).statusCode,200);
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',headers:{cookie:''},payload:{token:invite.json().token,username:'Pessoa teste',password:testPassword}});
+    const memberCookie=member.cookies[0].name+'='+member.cookies[0].value;
+    assert.equal((await app.inject({url:'/admin/logs',headers:{cookie:memberCookie}})).statusCode,403);
+    assert.equal((await app.inject({url:'/admin/logs',headers:{cookie:''}})).statusCode,401);
+    const logs=await app.inject('/admin/logs');assert.equal(logs.statusCode,200);
+    assert.ok(logs.json().events.some(entry=>entry.event==='message-send'));
+    assert.ok(logs.json().events.some(entry=>entry.event==='message-delete'));
+    assert.equal(logs.body.includes(secretText),false);
+  } finally {await app.close();}
+});
+test('logs registram entrada e saída reais da call observadas pelo LiveKit', async () => {
+  let participants=[];
+  const roomService={listRooms:async()=>participants.length?[{name:'geral'}]:[],listParticipants:async()=>participants};
+  const app=await createApp({...options,dbPath:':memory:',roomService});
+  try {
+    const id=(await app.inject('/presence')).json().users[0].id;
+    await app.inject('/voice-presence');participants=[{identity:id+':sessao'}];
+    await new Promise(resolve=>setTimeout(resolve,3100));await app.inject('/voice-presence');
+    participants=[];await new Promise(resolve=>setTimeout(resolve,3100));await app.inject('/voice-presence');
+    const entries=(await app.inject('/admin/logs')).json().events;
+    assert.ok(entries.some(entry=>entry.event==='voice-join'&&entry.actor==='Vitão'&&entry.channel==='Geral'));
+    assert.ok(entries.some(entry=>entry.event==='voice-leave'&&entry.actor==='Vitão'&&entry.channel==='Geral'));
+  } finally {await app.close();}
+});
 test('online presence and profile images use authenticated owners', async () => {
   const {default:sharp}=await import('sharp');
   const app=await createApp({...options,dbPath:':memory:'});
@@ -161,6 +216,15 @@ test('voice grants isolate the two allowed rooms and reject unknown rooms', asyn
     const spoof=await app.inject({method:'POST',url:'/token',payload:{name:'Outra pessoa'}}); assert.equal((await verifier.verify(spoof.json().token)).name,'Vitão');
   } finally { await app.close(); }
 });
+test('concurrent retries create only one message', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const payload={clientId:randomUUID(),text:'Mensagem simultânea'};
+    const responses=await Promise.all([app.inject({method:'POST',url:'/messages',payload}),app.inject({method:'POST',url:'/messages',payload})]);
+    assert.deepEqual(responses.map(response=>response.statusCode).sort(),[200,201]);
+    assert.equal(responses[0].json().id,responses[1].json().id);
+  } finally {await app.close();}
+});
 test('text works without a voice token, survives restart, and retries do not duplicate', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pg-chat-test-'));
   const dbPath = join(directory, 'chat.sqlite');
@@ -230,6 +294,45 @@ test('legacy messages migrate to the general chat without losing data', async ()
   const app=await createApp({...options,dbPath});
   try{const messages=(await app.inject('/messages')).json().messages;assert.equal(messages.length,1);assert.equal(messages[0].text,'Mensagem preservada');assert.equal(messages[0].channel,'general');assert.deepEqual(messages[0].attachments,[]);assert.equal((await app.inject('/messages?channel=voice:geral')).json().messages.length,0);}
   finally{await app.close();for(const name of ['chat.sqlite','chat.sqlite-wal','chat.sqlite-shm'])rmSync(join(directory,name),{force:true});rmdirSync(directory);}
+});
+test('arquivos gerais são baixados com segurança e não podem virar imagens de perfil', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const id=randomUUID(), contents=Buffer.from('<script>alert(1)</script>');
+    const headers={'content-type':'application/octet-stream','x-upload-id':id,'x-upload-channel':'general','x-upload-name':encodeURIComponent('anotação.html')};
+    const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:contents});
+    assert.equal(uploaded.statusCode,201);assert.equal(uploaded.json().mime,'application/octet-stream');assert.equal(uploaded.json().filename,'anotação.html');
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:id}})).statusCode,400);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,413);
+    const message=await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}});assert.equal(message.statusCode,201);
+    const downloaded=await app.inject('/media/'+id);assert.equal(downloaded.statusCode,200);assert.equal(downloaded.headers['content-type'],'application/octet-stream');assert.match(downloaded.headers['content-disposition'],/^attachment;/);assert.match(downloaded.headers['content-disposition'],/anota%C3%A7%C3%A3o.html/);assert.deepEqual(downloaded.rawPayload,contents);
+  } finally {await app.close();}
+});
+test('Chat Geral recebe e devolve um arquivo de 100 MB', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const id=randomUUID(),contents=Buffer.alloc(100*1024*1024,0x41);
+    const headers={'content-type':'application/octet-stream','x-upload-id':id,'x-upload-channel':'general','x-upload-name':'arquivo.bin'};
+    const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:contents});
+    assert.equal(uploaded.statusCode,201);assert.equal(uploaded.json().size,contents.length);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}})).statusCode,201);
+    const downloaded=await app.inject('/media/'+id);assert.equal(downloaded.statusCode,200);assert.deepEqual(downloaded.rawPayload,contents);
+  } finally {await app.close();}
+});
+test('Chat Geral aceita imagens acima de 8 MB e outros usos preservam o limite', async () => {
+  const {default:sharp}=await import('sharp');
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const image=await sharp(randomBytes(1800*1800*3),{raw:{width:1800,height:1800,channels:3}}).png({compressionLevel:0}).toBuffer();
+    assert.ok(image.length>8*1024*1024);
+    const id=randomUUID(), headers={'content-type':'application/octet-stream','x-upload-id':id,'x-upload-channel':'general'};
+    const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:image});
+    assert.equal(uploaded.statusCode,201);assert.ok(uploaded.json().size>8*1024*1024);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:id}})).statusCode,400);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,413);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}})).statusCode,201);
+    assert.equal((await app.inject({method:'POST',url:'/uploads',headers:{...headers,'x-upload-id':randomUUID()},payload:Buffer.alloc(100*1024*1024+1)})).statusCode,413);
+  } finally {await app.close();}
 });
 test('upload size and storage limits fail clearly without accepting the image', async () => {
   const {default:sharp}=await import('sharp');const app=await createApp({...options,dbPath:':memory:',maxMediaStorageBytes:1});

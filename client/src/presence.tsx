@@ -5,7 +5,7 @@ import { useAccount } from './accounts';
 
 type OnlineUser = {id:string;name:string;description:string;avatarUrl:string|null};
 
-type PresenceState = { people:OnlineUser[]; profiles:OnlineUser[]; refresh:()=>Promise<void>; showProfile:(id:string)=>void };
+type PresenceState = { people:OnlineUser[]; profiles:OnlineUser[]; voiceChannels:Record<string,string[]> | null; refresh:()=>Promise<void>; showProfile:(id:string)=>void };
 const PresenceContext = createContext<PresenceState | null>(null);
 // eslint-disable-next-line react-refresh/only-export-components
 export function usePresence() {
@@ -16,6 +16,7 @@ export function usePresence() {
 export function PresenceProvider({children}:{children:ReactNode}) {
   const [people,setPeople] = useState<OnlineUser[]>([]);
   const [profiles,setProfiles] = useState<OnlineUser[]>([]);
+  const [voiceChannels,setVoiceChannels] = useState<Record<string,string[]> | null>(null);
   const [selected,setSelected] = useState<string | null>(null);
   async function refresh() {
     const data = await jsonApi('/api/presence');
@@ -26,8 +27,18 @@ export function PresenceProvider({children}:{children:ReactNode}) {
     const timer = setInterval(() => void refresh().catch(() => {}), 15000);
     return () => { clearTimeout(initial); clearInterval(timer); };
   }, []);
+  useEffect(() => {
+    let active = true;
+    async function updateVoice() {
+      try { const data = await jsonApi('/api/voice-presence'); if (active) setVoiceChannels(data.channels); }
+      catch { if (active) setVoiceChannels(null); }
+    }
+    void updateVoice();
+    const timer = setInterval(() => void updateVoice(), 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{people,profiles,refresh,showProfile:setSelected}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><h2>{profile.name}</h2><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<p>{profile.description || 'Sem descrição ainda.'}</p></dialog>}</PresenceContext.Provider>;
+  return <PresenceContext.Provider value={{people,profiles,voiceChannels,refresh,showProfile:setSelected}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><h2>{profile.name}</h2><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<p>{profile.description || 'Sem descrição ainda.'}</p></dialog>}</PresenceContext.Provider>;
 }
 export function ProfileEditor({status}:{status?:string}) {
   const {user} = useAccount();
@@ -59,7 +70,8 @@ export function ProfileEditor({status}:{status?:string}) {
   return <><button className={status ? 'identity-card profile-edit-trigger' : 'button subtle'} disabled={!own} onClick={() => {setDescription(own?.description || '');setEditing(true);}} aria-label="Editar meu perfil">{status ? <>{own?.avatarUrl ? <img className="member-avatar" src={own.avatarUrl} alt=""/> : <span className="member-avatar">{user.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span><strong>{user.name}</strong><small>{status}</small></span><span className="profile-edit-hint" aria-hidden="true">Editar</span></> : 'Editar meu perfil'}</button>{editing && <dialog className="admin-dialog" ref={element => {if(element && !element.open)element.showModal();}} onCancel={closeEditor}><header><h2>Meu perfil</h2><button className="button subtle" onClick={closeEditor}>Fechar</button></header><form onSubmit={save}><label>Descrição<textarea maxLength={200} value={description} onChange={event => setDescription(event.target.value)} /></label><label>Foto ou GIF<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => {setFile(event.target.files?.[0] || null);setRemoveAvatar(false);}} /></label><small>PNG, JPG, WebP ou GIF, até 8 MB.</small>{own?.avatarUrl && <label><input type="checkbox" checked={removeAvatar} onChange={event => {setRemoveAvatar(event.target.checked);if(event.target.checked)setFile(null);}}/> Remover imagem atual</label>}<button className="button primary" disabled={saving}>{saving?'Salvando…':'Salvar perfil'}</button>{error && <p className="error-message" role="alert">{error}</p>}</form></dialog>}</>;
 }
 export function OnlineMembers() {
-  const {people,showProfile} = usePresence();
-  return <section className="online-members" aria-label="Membros online"><details className="online-list"><summary>Online · {people.length}</summary><ul>{people.map(person => <li key={person.id}><button className="online-profile-button" onClick={()=>showProfile(person.id)} aria-label={'Ver perfil de '+person.name}>{person.avatarUrl ? <img className="member-avatar" src={person.avatarUrl} alt=""/> : <span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span><strong>{person.name}</strong>{person.description && <small>{person.description}</small>}</span></button></li>)}</ul><ProfileEditor /></details></section>;
+  const {people,showProfile,voiceChannels} = usePresence();
+  const {voice} = useAccount();
+  return <section className="online-members" aria-label="Membros online"><details className="online-list"><summary>Online · {people.length}</summary><ul>{people.map(person => { const calls=voice.filter(channel=>voiceChannels?.[channel.id]?.includes(person.id)).map(channel=>channel.name); return <li key={person.id}><button className="online-profile-button" onClick={()=>showProfile(person.id)} aria-label={'Ver perfil de '+person.name}>{person.avatarUrl ? <img className="member-avatar" src={person.avatarUrl} alt=""/> : <span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span><strong>{person.name}</strong>{calls.length > 0 && <small className="online-voice-status">Call · {calls.join(', ')}</small>}{person.description && <small>{person.description}</small>}</span></button></li>; })}</ul><ProfileEditor /></details></section>;
 
 }

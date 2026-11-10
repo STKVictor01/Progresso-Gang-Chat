@@ -28,7 +28,7 @@ function start(exe, args, directory, name, environment) {
   } finally { fs.closeSync(out); fs.closeSync(err); }
 }
 // A backend started before an update keeps serving the old routes (for example, no /auth/login).
-const REQUIRED_BACKEND_VERSION = 10;
+const REQUIRED_BACKEND_VERSION = 13;
 function backendPid(health) {
   const lines=run('netstat.exe',['-ano','-p','TCP']).split(/\r?\n/);
   for(const line of lines) {

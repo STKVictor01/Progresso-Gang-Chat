@@ -490,8 +490,8 @@ input::placeholder { color: #949387; }
 .password-visibility:hover { color:#fff; background:#302b27; }
 .password-visibility:focus-visible { outline:2px solid #d6c6a3; outline-offset:-3px; }
 .account-rules { border-left:2px solid #d6c6a3; padding-left:16px; color:#f3e7d7; }
-.account-rules h2 { margin:0 0 8px; font-size:14px; font-weight:700; }
-.account-rules ul { list-style:none; display:grid; gap:5px; margin:0; padding:0; font-size:13px; }
+.account-rules h2 { margin:0 0 16px; font-size:clamp(28px,3vw,42px); line-height:1.1; font-weight:800; }
+.account-rules ul { list-style:none; display:grid; gap:8px; margin:0; padding:0; font-size:15px; }
 .server-logs-heading { display:flex; justify-content:space-between; align-items:start; gap:16px; }
 .server-logs-heading h3 { margin:8px 0; }.server-logs-heading p { color:#c4bcae; font-size:13px; line-height:1.5; }
 .server-logs ul { list-style:none; padding:0; max-height:45dvh; overflow:auto; }

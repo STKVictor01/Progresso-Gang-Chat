@@ -9,10 +9,11 @@ import sharp from 'sharp';
 import { installAccounts } from './accounts.js';
 import { normalizeSoundboardWav } from './soundboard-audio.js';
 import { createActivityLog } from './activity-log.js';
+import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 13;
+export const HEALTH_VERSION = 15;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -80,6 +81,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   app.addHook('onClose', async () => db.close());
   await app.register(cors, { origin: 'http://localhost:5173' });
   const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady,recordEvent:activity.record});
+  installMusic(app, {accounts, roomService, apiKey, apiSecret, serverUrl});
   if (db.kind==='sqlite') {
   const columns = (await db.prepare('PRAGMA table_info(messages)').all());
   if (!columns.some(c=>c.name==='user_id')) (await db.exec('ALTER TABLE messages ADD COLUMN user_id TEXT REFERENCES users(id)'));
@@ -135,17 +137,19 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   });
   let generalUploadBusy=false;
   app.post('/uploads', {bodyLimit:MAX_GENERAL_UPLOAD_BYTES,onRequest:async(request,reply)=>{
-    if(request.headers['x-upload-channel']!=='general')return;
+    if(!request.headers['x-upload-channel'])return;
     if(generalUploadBusy)return reply.code(429).send({error:'Aguarde o envio em andamento e tente novamente.'});
     generalUploadBusy=true;reply.raw.once('close',()=>{generalUploadBusy=false;});
   }}, async (request,reply) => {
     const id=request.headers['x-upload-id'];
     const buffer=request.body;
     if(typeof id!=='string'||!UUID.test(id)||!Buffer.isBuffer(buffer)||!buffer.length) return reply.code(400).send({error:'Selecione uma imagem ou GIF válido.'});
-    const limit=request.headers['x-upload-channel']==='general'?MAX_GENERAL_UPLOAD_BYTES:MAX_UPLOAD_BYTES;
+    const uploadChannel=request.headers['x-upload-channel'];
+    if(uploadChannel && (typeof uploadChannel !== 'string' || !(await accounts.conversationExists(uploadChannel)))) return reply.code(400).send({error:'Canal inválido.'});
+    const limit=uploadChannel?MAX_GENERAL_UPLOAD_BYTES:MAX_UPLOAD_BYTES;
     if(buffer.length>limit)return reply.code(413).send({error:`A imagem deve ter até ${limit===MAX_GENERAL_UPLOAD_BYTES?100:8} MB.`});
     const format=imageSignature(buffer);
-    const general=request.headers['x-upload-channel']==='general';
+    const general=Boolean(uploadChannel);
     if(!format&&!general) return reply.code(415).send({error:'Use PNG, JPG, WebP ou GIF. Outros arquivos não são aceitos neste canal.'});
     const filename=uploadName(request.headers['x-upload-name']);
     const requestHash=createHash('sha256').update(buffer).digest('hex');
@@ -268,7 +272,6 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     for(const id of attachmentIds){
       const attachment=await db.prepare('SELECT id,size,mime FROM attachments WHERE id=? AND owner_id=?').get(id,request.user.id);
       if(!attachment)return reply.code(400).send({error:'Um dos anexos não foi enviado por você. Tente novamente.'});
-      if(channel!=='general'&&(attachment.size>MAX_UPLOAD_BYTES||!attachment.mime.startsWith('image/')))return reply.code(413).send({error:'Neste canal, envie apenas imagens ou GIFs de até 8 MB.'});
       if((await db.prepare('SELECT user_id FROM profiles WHERE avatar_id=?').get(id)))return reply.code(409).send({error:'Escolha outra imagem para a mensagem.'});
       if((await db.prepare('SELECT message_id FROM message_attachments WHERE attachment_id=?').get(id)))return reply.code(409).send({error:'Um dos anexos já foi publicado. Selecione o arquivo novamente.'});
     }

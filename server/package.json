@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test app.test.js",
+    "test": "node --test app.test.js music.test.js",
     "test:postgres": "node --test postgres.test.js",
     "test:migration": "node --test migrate.test.js",
     "dev": "node --watch index.js",

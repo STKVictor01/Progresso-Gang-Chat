@@ -8,9 +8,9 @@ export function toggleListenerMute(previous: ListenerPreferences, identity: stri
 export function isListenerMuted(preferences: ListenerPreferences, identity: string, source: AudioSource) {
   return preferences[identity]?.[source] === true;
 }
-export function listenerVolume(preferences: ListenerPreferences, volumes: Record<string, number>, identity: string, source: AudioSource) {
+export function listenerVolume(preferences: ListenerPreferences, volumes: Record<string, number>, identity: string, source: AudioSource, screenVolumes: Record<string, number> = {}) {
   if (isListenerMuted(preferences, identity, source)) return 0;
-  return source === 'microphone' ? (volumes[identity] ?? 1) : 1;
+  return (source === 'microphone' ? volumes : screenVolumes)[identity] ?? 1;
 }
 export function microphoneOptions(enabled: boolean): AudioCaptureOptions {
   return { noiseSuppression: enabled, echoCancellation: true, autoGainControl: true };

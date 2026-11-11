@@ -6,6 +6,8 @@ test('volume altera apenas a voz escolhida e respeita os silenciamentos', () => 
   const volumes = { amigoA: 0.35 };
   assert.equal(listenerVolume({}, volumes, 'amigoA', 'microphone'), 0.35);
   assert.equal(listenerVolume({}, volumes, 'amigoA', 'screen'), 1);
+  assert.equal(listenerVolume({}, volumes, 'amigoA', 'screen', { amigoA: 0.2 }), 0.2);
+  assert.equal(listenerVolume({ amigoA: { screen: true } }, volumes, 'amigoA', 'screen', { amigoA: 0.2 }), 0);
   assert.equal(listenerVolume({}, volumes, 'amigoB', 'microphone'), 1);
   assert.equal(listenerVolume({ amigoA: { microphone: true } }, volumes, 'amigoA', 'microphone'), 0);
   assert.equal(listenerVolume({ amigoA: { screen: true } }, volumes, 'amigoA', 'screen'), 0);

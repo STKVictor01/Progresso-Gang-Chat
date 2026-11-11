@@ -303,23 +303,22 @@ test('arquivos gerais são baixados com segurança e não podem virar imagens de
     const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:contents});
     assert.equal(uploaded.statusCode,201);assert.equal(uploaded.json().mime,'application/octet-stream');assert.equal(uploaded.json().filename,'anotação.html');
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:id}})).statusCode,400);
-    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,413);
-    const message=await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}});assert.equal(message.statusCode,201);
+    const message=await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}});assert.equal(message.statusCode,201);
     const downloaded=await app.inject('/media/'+id);assert.equal(downloaded.statusCode,200);assert.equal(downloaded.headers['content-type'],'application/octet-stream');assert.match(downloaded.headers['content-disposition'],/^attachment;/);assert.match(downloaded.headers['content-disposition'],/anota%C3%A7%C3%A3o.html/);assert.deepEqual(downloaded.rawPayload,contents);
   } finally {await app.close();}
 });
-test('Chat Geral recebe e devolve um arquivo de 100 MB', async () => {
+test('Chat de call recebe e devolve um arquivo de 100 MB', async () => {
   const app=await createApp({...options,dbPath:':memory:'});
   try {
     const id=randomUUID(),contents=Buffer.alloc(100*1024*1024,0x41);
-    const headers={'content-type':'application/octet-stream','x-upload-id':id,'x-upload-channel':'general','x-upload-name':'arquivo.bin'};
+    const headers={'content-type':'application/octet-stream','x-upload-id':id,'x-upload-channel':'voice:geral','x-upload-name':'arquivo.bin'};
     const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:contents});
     assert.equal(uploaded.statusCode,201);assert.equal(uploaded.json().size,contents.length);
-    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}})).statusCode,201);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,201);
     const downloaded=await app.inject('/media/'+id);assert.equal(downloaded.statusCode,200);assert.deepEqual(downloaded.rawPayload,contents);
   } finally {await app.close();}
 });
-test('Chat Geral aceita imagens acima de 8 MB e outros usos preservam o limite', async () => {
+test('Chats aceitam imagens acima de 8 MB e fotos de perfil preservam o limite', async () => {
   const {default:sharp}=await import('sharp');
   const app=await createApp({...options,dbPath:':memory:'});
   try {
@@ -329,8 +328,7 @@ test('Chat Geral aceita imagens acima de 8 MB e outros usos preservam o limite',
     const uploaded=await app.inject({method:'POST',url:'/uploads',headers,payload:image});
     assert.equal(uploaded.statusCode,201);assert.ok(uploaded.json().size>8*1024*1024);
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:id}})).statusCode,400);
-    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,413);
-    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'general',attachmentIds:[id]}})).statusCode,201);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,201);
     assert.equal((await app.inject({method:'POST',url:'/uploads',headers:{...headers,'x-upload-id':randomUUID()},payload:Buffer.alloc(100*1024*1024+1)})).statusCode,413);
   } finally {await app.close();}
 });

@@ -13,3 +13,6 @@
   - Testar microfone, câmera, reprodução de transmissão e áudio em aparelhos reais, incluindo troca de aplicativos e bloqueio de tela.
   - Identificar as limitações de compartilhamento de tela e áudio em cada navegador móvel e apresentar alternativas adequadas.
   - Fazer uma rodada privada de testes antes de disponibilizar a versão móvel.
+
+- [ ] Integrar o conversor de voz w-okada com modelos RVC e validar em uma chamada real, incluindo o indicador de fala.
+- [ ] Avaliar música por links do YouTube; o player oficial deve permanecer visível e não oferece extração isolada de áudio.

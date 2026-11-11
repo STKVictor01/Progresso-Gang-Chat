@@ -563,3 +563,15 @@ input::placeholder { color: #949387; }
   .public-compose textarea { font-size:16px; }
 }
 @media (prefers-reduced-motion:reduce) { .community-sidebar { transition:none; } }
+
+/* Maintain a compact, readable channel list on larger screens. */
+.community-sidebar .channel > span, .community-sidebar .member-name { font-size:13px; }
+.community-sidebar .channel small, .community-sidebar .member-name small { font-size:11px; }
+
+.mention-select { display:inline-flex; align-items:center; gap:4px; min-height:44px; color:var(--red-light); }
+.mention-select select { max-width:130px; color:var(--text); background:var(--raised); border:1px solid var(--line); border-radius:5px; min-height:36px; }
+.mention-notice { position:fixed; z-index:90; right:16px; top:16px; max-width:min(360px,90vw); padding:12px 16px; border:1px solid var(--red); border-radius:6px; background:var(--raised); color:var(--text); }
+
+.call-controls .music-trigger { min-width:44px; min-height:44px; padding:10px; }
+.music-dialog form { display:flex; flex-direction:column; gap:12px; }
+.music-actions { display:flex; flex-wrap:wrap; gap:8px; }

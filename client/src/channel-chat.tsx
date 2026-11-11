@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ClipboardEvent, FormEvent } from 'react';
 import { usePresence } from './presence';
+import { useAccount } from './accounts';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
@@ -47,7 +48,9 @@ async function requestError(response: Response, fallback: string) {
   try { const body = await response.json(); return typeof body.error === 'string' ? body.error : fallback; } catch { return fallback; }
 }
 export function ChannelChat({ name, channel, title, compact = false, visible = true, onClose }: { name: string; channel: string; title: string; compact?: boolean; visible?: boolean; onClose?: () => void }) {
-  const limitMb = channel === 'general' ? 100 : 8;
+  const limitMb = 100;
+  const {profiles} = usePresence();
+  const {user} = useAccount();
   const inputId = useId();
   const [messages, setMessages] = useState<TextMessage[]>([]);
   const [draft, setDraft] = useState(() => { try { return sessionStorage.getItem('pg-draft-'+channel) || ''; } catch { return ''; } });
@@ -102,14 +105,13 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     if (sending) return;
     const accepted: PendingFile[] = []; const errors: string[] = [];
     for (const file of incoming) {
-      if (channel !== 'general' && !isImageFile(file)) { errors.push('Use imagens PNG, JPG, WebP ou GIF.'); continue; }
       if (file.size>limitMb*MB) {errors.push(`Cada arquivo pode ter até ${limitMb} MB.`);continue;}
       if (files.length+accepted.length>=4) {errors.push('Envie até quatro anexos por mensagem.');break;}
       accepted.push({id:crypto.randomUUID(),file,preview:isImageFile(file)?URL.createObjectURL(file):null});
     }
     setError([...new Set(errors)].join(' ')); setFiles(previous=>[...previous,...accepted]);
   }
-  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) { const files=Array.from(event.clipboardData.files).filter(file=>channel==='general'||file.type.startsWith('image/')); if(files.length){event.preventDefault();addFiles(files);} }
+  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) { const files=Array.from(event.clipboardData.files); if(files.length){event.preventDefault();addFiles(files);} }
   function removeFile(id:string) { const item=files.find(file=>file.id===id);if(item?.preview)URL.revokeObjectURL(item.preview);uploaded.current.delete(id);setFiles(previous=>previous.filter(file=>file.id!==id)); }
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;
@@ -121,7 +123,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       for(let index=0;index<files.length;index++){
         const item=files[index];setProgress('Enviando anexo '+(index+1)+' de '+files.length+'…');
         if(!uploaded.current.has(item.id)){
-          const response=await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id,'x-upload-channel':channel,'x-upload-name':encodeURIComponent(item.file.name)},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(channel==='general'?600000:60000)])});
+          const response=await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':item.id,'x-upload-channel':channel,'x-upload-name':encodeURIComponent(item.file.name)},body:item.file,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(600000)])});
           if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar o anexo.'));
           uploaded.current.set(item.id,await response.json() as Attachment);
         }
@@ -155,7 +157,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     </div>
     <div className="public-compose"><p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
       <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea id={inputId} value={draft} onChange={event=>setDraft(event.target.value)} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
-      <div className="compose-extras"><input ref={fileInput} type="file" accept={channel==='general'?undefined:ACCEPT.join(',')} multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label={compact?'Anexar imagem ou GIF na call':channel==='general'?'Anexar arquivo':'Anexar imagem ou GIF'}><ClipIcon/>{channel==='general'?'Anexar arquivo':'Imagem / GIF'}</button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
+      <div className="compose-extras"><label className="mention-select">@ <span className="sr-only">Mencionar pessoa</span><select aria-label="Mencionar pessoa" value="" onChange={event => { const person = profiles.find(profile => profile.id === event.target.value); if (person) setDraft(previous => previous + (previous && !/\s$/.test(previous) ? ' ' : '') + '@' + person.name + ' '); }}><option value="">Mencionar</option>{profiles.filter(profile => profile.id !== user.id).map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label><input ref={fileInput} type="file"  multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label="Anexar arquivo"><ClipIcon/>Anexar arquivo</button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>
     <dialog className="image-dialog" ref={dialog} onCancel={()=>setViewer(null)} onClose={()=>setViewer(null)} onClick={event=>{if(event.target===event.currentTarget)setViewer(null);}} aria-label="Imagem ampliada">{viewer&&<><button className="button subtle image-dialog-close" onClick={()=>setViewer(null)}>Fechar imagem</button><img src={viewer.source} alt={viewer.attachment.animated?'GIF ampliado':'Imagem ampliada'}/></>}</dialog>
   </section>;

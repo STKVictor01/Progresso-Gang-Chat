@@ -13,6 +13,7 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
   const { microphoneTrack, isMicrophoneEnabled } = useLocalParticipant();
   const [muted, setMuted] = useState<ListenerPreferences>({});
   const [volumes, setVolumes] = useState<Record<string, number>>({});
+  const [screenVolumes, setScreenVolumes] = useState<Record<string, number>>({});
   const [noiseSuppression, setNoiseSuppression] = useState(readNoisePreference);
   const [noiseBusy, setNoiseBusy] = useState(false);
   const [applied, setApplied] = useState<boolean | undefined>();
@@ -69,15 +70,15 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('pg-noise-suppression', String(next)); } catch { /* Storage is optional. */ }
   }
   const noiseStatus = !noiseSupported ? 'Este navegador não oferece esse filtro.' : error || (noiseBusy ? 'Ajustando filtro…' : !track || track.mediaStreamTrack.readyState === 'ended' ? 'A opção será aplicada ao ligar o microfone.' : !noiseSuppression ? 'Supressão de ruído desligada.' : applied === true ? 'Redução de ruído ativa no microfone.' : applied === false ? 'O navegador não ativou a redução de ruído.' : 'Redução de ruído solicitada ao navegador.');
-  return <PreferencesContext.Provider value={{ muted, volumes, setVolume: (identity, volume) => setVolumes(previous => ({...previous, [identity]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, identity, source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
+  return <PreferencesContext.Provider value={{ muted, volumes, screenVolumes, setScreenVolume: (identity, volume) => setScreenVolumes(previous => ({...previous, [identity]: volume})), setVolume: (identity, volume) => setVolumes(previous => ({...previous, [identity]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, identity, source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
 }
 export function PersonalAudioRenderer() {
-  const { muted, volumes } = useCallPreferences();
+  const { muted, volumes, screenVolumes } = useCallPreferences();
   const audio = useTracks([Track.Source.Microphone, Track.Source.ScreenShareAudio, Track.Source.Unknown], { onlySubscribed: false }).filter(ref => !ref.participant.isLocal && ref.publication.kind === Track.Kind.Audio);
   return <div hidden aria-hidden="true">{audio.map(ref => {
     const source = ref.source === Track.Source.ScreenShareAudio ? 'screen' : 'microphone';
     const silenced = isListenerMuted(muted, ref.participant.identity, source);
-    return <AudioTrack key={ref.publication.trackSid} trackRef={ref} volume={listenerVolume(muted, volumes, ref.participant.identity, source)} muted={silenced} data-audio-owner={ref.participant.name || ref.participant.identity} data-audio-kind={source} data-locally-muted={silenced} />;
+    return <AudioTrack key={ref.publication.trackSid} trackRef={ref} volume={listenerVolume(muted, volumes, ref.participant.identity, source, screenVolumes)} muted={silenced} data-audio-owner={ref.participant.name || ref.participant.identity} data-audio-kind={source} data-locally-muted={silenced} />;
   })}</div>;
 }
 export function QuickParticipantMute({ participant }: { participant: Participant }) {
@@ -88,12 +89,15 @@ export function QuickParticipantMute({ participant }: { participant: Participant
   return <button className={'quick-mute ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} aria-label={(silenced ? 'Ouvir voz de ' : 'Silenciar voz de ') + label + ' só para mim'} title={silenced ? 'Ouvir este amigo' : 'Silenciar este amigo só para você'} onClick={() => toggleMute(participant.identity, 'microphone')}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" />{silenced ? <path d="m16 9 6 6m-6 0 6-6" /> : <path d="M16 8a6 6 0 0 1 0 8" />}</svg></button>;
 }
 export function ParticipantAudioControls({ participant }: { participant: Participant }) {
-  const { muted, toggleMute, volumes, setVolume } = useCallPreferences();
+  const { muted, toggleMute, volumes, setVolume, screenVolumes, setScreenVolume } = useCallPreferences();
   const name = participant.name || 'Participante';
   const volume = Math.round((volumes[participant.identity] ?? 1) * 100);
   return <div className="participant-audio-controls">
     <label>Volume da voz de {name} <output>{volume}%</output>
       <input type="range" min="0" max="100" value={volume} onChange={event => setVolume(participant.identity, Number(event.target.value) / 100)} />
+    </label>
+    <label>Volume da transmissão de {name} <output>{Math.round((screenVolumes[participant.identity] ?? 1) * 100)}%</output>
+      <input type="range" min="0" max="100" value={Math.round((screenVolumes[participant.identity] ?? 1) * 100)} onChange={event => setScreenVolume(participant.identity, Number(event.target.value) / 100)} />
     </label>
     {(['microphone', 'screen'] as const).map(source => {
       const silenced = isListenerMuted(muted, participant.identity, source);

@@ -6,6 +6,8 @@ export type CallPreferences = {
   toggleMute: (identity: string, source: AudioSource) => void;
   volumes: Record<string, number>;
   setVolume: (identity: string, volume: number) => void;
+  screenVolumes: Record<string, number>;
+  setScreenVolume: (identity: string, volume: number) => void;
   noiseSuppression: boolean;
   noiseSupported: boolean;
   noiseBusy: boolean;

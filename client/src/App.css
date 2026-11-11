@@ -575,3 +575,18 @@ input::placeholder { color: #949387; }
 .call-controls .music-trigger { min-width:44px; min-height:44px; padding:10px; }
 .music-dialog form { display:flex; flex-direction:column; gap:12px; }
 .music-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
+.public-compose { position:relative; }
+.mention-suggestions { position:absolute; z-index:20; left:12px; bottom:100%; width:min(320px,calc(100% - 24px)); max-height:min(280px,40dvh); overflow:auto; padding:6px; border:1px solid #715148; border-radius:8px; background:#24231f; box-shadow:0 10px 30px #0009; }
+.mention-suggestions button { display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:6px 10px; color:var(--text); text-align:left; border:0; border-radius:5px; background:transparent; }
+.mention-suggestions button[aria-selected=true], .mention-suggestions button:hover { background:#51312c; }
+.mention-suggestions .member-avatar { object-fit:cover; }
+.chat-mention { color:#ffd8c5; background:#623127; border-radius:3px; text-decoration:underline; text-underline-offset:2px; padding:0 2px; }
+.chat-mention.is-mine { color:#fff; background:#95392f; font-weight:700; }
+.mention-notice { display:flex; align-items:center; gap:12px; }
+.mention-notice { max-height:min(45dvh,360px); overflow:auto; align-items:flex-start; }
+.mention-notice ul { list-style:none; padding:0; margin:8px 0 0; }
+.mention-notice li button { min-height:40px; text-align:left; color:var(--text); background:transparent; border:0; padding:6px 0; text-decoration:underline; }
+.screen-wake-control { display:none; }
+@media (max-width:767px) { .screen-wake-control { display:block; } .call-controls .screen-wake-toggle { min-width:44px; min-height:44px; padding:10px; } .screen-wake-toggle[aria-pressed=true] { border-color:var(--red-light); background:#50302a; } }
+.screen-wake-status:not(:empty) { position:fixed; z-index:90; left:16px; right:16px; bottom:150px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; color:var(--text); background:var(--raised); box-shadow:0 6px 20px #0008; font-size:13px; pointer-events:none; }

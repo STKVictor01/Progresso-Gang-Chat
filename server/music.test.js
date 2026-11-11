@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { installMusic } from './music.js';
+import { installMusic, parseMusicInput } from './music.js';
+
+test('aceita pesquisa por nome e valida links antes de acionar o bot', () => {
+  assert.deepEqual(parseMusicInput('  Clube da Esquina  '), {query:'Clube da Esquina'});
+  assert.deepEqual(parseMusicInput('AC/DC - Thunderstruck'), {query:'AC/DC - Thunderstruck'});
+  assert.deepEqual(parseMusicInput('Legião Urbana: Tempo Perdido'), {query:'Legião Urbana: Tempo Perdido'});
+  assert.deepEqual(parseMusicInput('https://youtu.be/dQw4w9WgXcQ?t=2'), {url:'https://www.youtube.com/watch?v=dQw4w9WgXcQ'});
+  for (const value of ['', 'https://example.com/a', 'http://localhost:8080', 'file:///local', 'https://youtube.com/watch?v=invalid', 'a'.repeat(201)]) assert.equal(parseMusicInput(value),null);
+});
 
 test('música exige participante na call e rejeita links fora do YouTube', async () => {
   let members=[];

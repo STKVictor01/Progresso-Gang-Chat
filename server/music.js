@@ -22,6 +22,15 @@ function videoId(value) {
     return /^[a-zA-Z0-9_-]{11}$/.test(id || '') ? id : null;
   } catch { return null; }
 }
+export function parseMusicInput(value) {
+  if (typeof value !== 'string') return null;
+  const text=value.trim();
+  if (!text || text.length>1000 || /[\u0000-\u001f\u007f]/.test(text)) return null;
+  const id=videoId(text);
+  if (id) return {url:'https://www.youtube.com/watch?v='+id};
+  if (text.length>200 || /^[a-z][a-z0-9+.-]*:\/\//i.test(text) || /^(?:https?|file|data|javascript):/i.test(text) || /^www\./i.test(text) || /^\S+\.\S+\//.test(text)) return null;
+  return {query:text};
+}
 export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl }) {
   const rooms = new Map();
   function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,error:'',serial:0}); return rooms.get(room); }
@@ -44,7 +53,7 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
   async function next(room) {
     const player=state(room);
     if(player.process || player.starting || !player.queue.length) { if (!player.process && !player.starting) player.current=null;return; }
-    player.starting=true; const item=player.queue.shift(); player.current={url:item.url,title:'Carregando…'}; player.error='';
+    player.starting=true; const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.error='';
     const serial=++player.serial;
     try {
       const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'12h'});
@@ -53,9 +62,9 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
       if(player.serial!==serial)return;
       const child=spawn(python,['-u',worker],{stdio:['pipe','pipe','ignore'],windowsHide:true,detached:process.platform!=='win32'});
       player.process=child; player.starting=false; child.stdin.on('error',()=>{});
-      child.stdin.end(JSON.stringify({url:item.url,serverUrl,token:jwt})+'\n');
+      child.stdin.end(JSON.stringify({...item,serverUrl,token:jwt})+'\n');
       let buffer='';
-      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='playing'&&player.current)player.current.title=event.title;if(event.event==='error')player.error=event.message;}catch{}});
+      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=event.message;}catch{}});
       child.on('error',()=>{if(player.serial===serial)player.error='O serviço de música não iniciou.';});
       child.on('close',code=>{if(player.serial!==serial)return;player.process=null;player.current=null;if(code && !player.error)player.error='Não foi possível reproduzir esse link.';void next(room);});
     } catch { if(player.serial===serial){player.starting=false;player.current=null;player.error='Não foi possível iniciar a música.';void next(room);} }
@@ -64,10 +73,10 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
   app.get('/music/:room',async(request,reply)=>{if(!await authorize(request,reply))return;return snapshot(request.params.room);});
   app.post('/music/:room',async(request,reply)=>{
     if(!await authorize(request,reply))return;
-    const id=videoId(request.body?.url);if(!id)return reply.code(400).send({error:'Informe um link válido de vídeo do YouTube.'});
+    const item=parseMusicInput(request.body?.url);if(!item)return reply.code(400).send({error:'Digite o nome da música ou um link válido do YouTube.'});
     if(!existsSync(python))return reply.code(503).send({error:'O serviço de música não está instalado neste computador.'});
     const player=state(request.params.room);if(player.queue.length>=20)return reply.code(429).send({error:'A fila está cheia.'});
-    player.queue.push({url:'https://www.youtube.com/watch?v='+id});void next(request.params.room);return reply.code(202).send(snapshot(request.params.room));
+    player.queue.push(item);void next(request.params.room);return reply.code(202).send(snapshot(request.params.room));
   });
   app.post('/music/:room/:action',async(request,reply)=>{
     if(!await authorize(request,reply))return;

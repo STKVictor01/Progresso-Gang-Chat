@@ -531,3 +531,35 @@ input::placeholder { color: #949387; }
   .compact-chat .public-messages { padding:8px 12px; }
   .compact-chat .public-compose textarea { min-height:44px; font-size:16px; }
 }
+
+/* Mobile: channels open as a drawer so conversations keep the screen. */
+.mobile-menu-button, .mobile-menu-close, .mobile-menu-backdrop { display:none; }
+@media (max-width:767px) {
+  .mobile-sidebar-header { display:flex; align-items:center; justify-content:space-between; width:100%; gap:12px; }
+  .community-sidebar {
+    position:fixed; z-index:101; inset:0 auto 0 0; width:min(310px, 86vw); max-height:none;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    flex-direction:column; flex-wrap:nowrap; align-items:stretch; justify-content:flex-start; gap:16px;
+    overflow-y:auto; border-right:1px solid var(--line); border-bottom:0;
+    transform:translateX(-100%); visibility:hidden; transition:transform .2s ease, visibility .2s;
+  }
+  .community-sidebar.mobile-open { transform:translateX(0); visibility:visible; }
+  .mobile-menu-backdrop { display:block; position:fixed; z-index:100; inset:0; width:100%; height:100%; border:0; background:#000b; }
+  .mobile-menu-button, .mobile-menu-close { display:grid; place-items:center; width:44px; height:44px; flex-shrink:0; border:1px solid var(--line); border-radius:8px; color:var(--text); background:var(--raised); }
+  .community-sidebar .channel-navigation { display:flex; flex-direction:column; overflow:visible; width:100%; gap:6px; padding:0; }
+  .community-sidebar .channel { width:100%; min-width:0; min-height:48px; justify-content:flex-start; padding:10px 12px; white-space:normal; }
+  .community-sidebar .channel small { display:block; }
+  .community-sidebar .sidebar-section-label { display:flex; margin:12px 0 4px; }
+  .community-sidebar .voice-members-heading { margin:0; }
+  .community-sidebar .members { max-height:none; overflow:visible; }
+  .community-sidebar .sidebar-bottom { margin-top:auto; padding-top:12px; border-top:1px solid var(--line); }
+  .community-shell .page-header, .community-shell .main-panel:has(> .channel-chat:not(.compact-chat):not([hidden])) > .page-header { min-height:64px; padding:8px 12px; gap:10px; }
+  .channel-heading { flex:1; min-width:0; gap:8px; }
+  .channel-heading strong { font-size:15px; }
+  .account-menu summary { max-width:125px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .voice-dock { max-height:40dvh; }
+  .voice-dock .call-controls { gap:8px; }
+  .voice-dock .call-controls .lk-button, .voice-dock .call-controls .button { min-width:44px; min-height:44px; }
+  .public-compose textarea { font-size:16px; }
+}
+@media (prefers-reduced-motion:reduce) { .community-sidebar { transition:none; } }

@@ -17,7 +17,7 @@ import { Soundboard } from './soundboard';
 import { OnlineMembers, ProfileEditor, PresenceProvider, usePresence } from './presence';
 
 type Session = { token: string; serverUrl: string };
-type IconName = 'voice' | 'voiceQuiet' | 'arrow' | 'link' | 'shield' | 'chat' | 'close' | 'chevron' | 'headphones';
+type IconName = 'voice' | 'voiceQuiet' | 'arrow' | 'link' | 'shield' | 'chat' | 'close' | 'chevron' | 'headphones' | 'menu';
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     voice: <><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></>,
@@ -28,6 +28,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     chat: <path d="M21 11a8 8 0 0 1-8 8H7l-4 3V7a4 4 0 0 1 4-4h6a8 8 0 0 1 8 8Z" />,
     close: <path d="m6 6 12 12M6 18 18 6" />,
     chevron: <path d="m8 10 4 4 4-4" />,
+    menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     headphones: <><path d="M4 14v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="12" width="4" height="8" rx="2" /><rect x="17" y="12" width="4" height="8" rx="2" /></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
@@ -82,11 +83,11 @@ type Navigation = {
 const NavigationContext = createContext<Navigation | null>(null);
 function useNavigation() { const value = useContext(NavigationContext); if (!value) throw Error('Missing navigation'); return value; }
 function Brand() { const {site}=useAccount(); return <a className="brand" href="#principal" aria-label={site.name}><Mark /><span>{site.name}</span></a>; }
-function Sidebar() {
+function Sidebar({open, close}: {open: boolean; close: () => void}) {
   const {voice:CHANNELS,text,site}=useAccount();
   const nav = useNavigation();
   const participants = useParticipants();
-  return <aside className="sidebar community-sidebar" aria-label="Canais da comunidade"><Brand /><OnlineMembers /><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais"><div className="sidebar-section-label">CONVERSA</div>{text.map(channel=><button key={channel.id} className={'channel text-channel ' + (nav.view === 'text' && nav.selectedText === channel.id ? 'active' : '')} aria-current={nav.view === 'text' && nav.selectedText === channel.id ? 'page' : undefined} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span>#{channel.name}<small>{channel.hint}</small></span></button>)}<div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span></div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</nav>{nav.activeVoice && <><div className="sidebar-section-label participants-label voice-members-heading">CALL · {CHANNELS.find(c => c.id === nav.activeVoice)?.name.toUpperCase()} <span>{participants.length}</span></div><ul className="members">{participants.map(p => <Member key={p.identity} participant={p} />)}</ul></>}<div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Conectado à voz' : 'Só no texto. De boa.'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
+  return <aside id="community-sidebar" className={"sidebar community-sidebar " + (open ? "mobile-open" : "")} aria-label="Canais da comunidade"><div className="mobile-sidebar-header"><Brand /><button className="mobile-menu-close" onClick={close} aria-label="Fechar canais"><Icon name="close" /></button></div><OnlineMembers /><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais" onClick={event => { if ((event.target as HTMLElement).closest("button")) close(); }}><div className="sidebar-section-label">CONVERSA</div>{text.map(channel=><button key={channel.id} className={'channel text-channel ' + (nav.view === 'text' && nav.selectedText === channel.id ? 'active' : '')} aria-current={nav.view === 'text' && nav.selectedText === channel.id ? 'page' : undefined} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span>#{channel.name}<small>{channel.hint}</small></span></button>)}<div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span></div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</nav>{nav.activeVoice && <><div className="sidebar-section-label participants-label voice-members-heading">CALL · {CHANNELS.find(c => c.id === nav.activeVoice)?.name.toUpperCase()} <span>{participants.length}</span></div><ul className="members">{participants.map(p => <Member key={p.identity} participant={p} />)}</ul></>}<div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Conectado à voz' : 'Só no texto. De boa.'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
 }
 function VoiceChannel({channel}:{channel:{id:string;name:string;hint:string}}) {
   const nav = useNavigation();
@@ -102,12 +103,12 @@ function VoiceChannel({channel}:{channel:{id:string;name:string;hint:string}}) {
     <span className="voice-channel-count" title={status} aria-hidden="true">{count ?? '—'}</span>
   </button>;
 }
-function PageHeader() {
+function PageHeader({openMenu, menuOpen}: {openMenu: () => void; menuOpen: boolean}) {
   const {voice:CHANNELS,text}=useAccount();
   const {voiceChannels}=usePresence();
   const nav = useNavigation();
   const channel = CHANNELS.find(c => c.id === nav.selectedVoice);
-  return <header className="page-header"><div className="channel-heading"><Icon name={nav.view === 'text' ? 'chat' : voiceChannels?.[nav.selectedVoice]?.length ? 'voice' : 'voiceQuiet'} size={23} /><div><strong>{nav.view === 'text' ? '#'+text.find(c=>c.id===nav.selectedText)?.name : channel?.name}</strong><span>{nav.view === 'text' ? 'O papo continua. Com ou sem microfone.' : channel?.hint}</span></div></div><AccountActions /><InviteButton /></header>;
+  return <header className="page-header"><button className="mobile-menu-button" onClick={openMenu} aria-label="Abrir canais" aria-controls="community-sidebar" aria-expanded={menuOpen}><Icon name="menu" /></button><div className="channel-heading"><Icon name={nav.view === 'text' ? 'chat' : voiceChannels?.[nav.selectedVoice]?.length ? 'voice' : 'voiceQuiet'} size={23} /><div><strong>{nav.view === 'text' ? '#'+text.find(c=>c.id===nav.selectedText)?.name : channel?.name}</strong><span>{nav.view === 'text' ? 'O papo continua. Com ou sem microfone.' : channel?.hint}</span></div></div><AccountActions /><InviteButton /></header>;
 }
 
 function PublicChat() { const {name,view,selectedText}=useNavigation(); const {text}=useAccount(); return <ChannelChat key={selectedText} name={name} channel={selectedText} title={'#'+text.find(c=>c.id===selectedText)?.name} visible={view==='text'} />; }
@@ -125,8 +126,17 @@ function Community() {
   const {voice:CHANNELS}=useAccount();
   const nav = useNavigation();
   const state = useConnectionState();
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    document.querySelector<HTMLButtonElement>('.mobile-menu-close')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setMenuOpen(false); document.querySelector<HTMLButtonElement>('.mobile-menu-button')?.focus(); } };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
+  const closeMenu = () => { if (menuOpen) { setMenuOpen(false); document.querySelector<HTMLButtonElement>('.mobile-menu-button')?.focus(); } };
   const channel = CHANNELS.find(c=>c.id===nav.selectedVoice)!;
-  return <div className="app-shell room-shell community-shell"><Sidebar /><main className="main-panel" id="principal"><PageHeader />{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><div className="room-heading"><div><span className="eyebrow">CANAL DE VOZ</span><h1>{channel.name}</h1></div><span className="connection-badge" role="status">{nav.joining ? 'Entrando no canal…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : nav.activeVoice===channel.id ? 'Na mesma sintonia' : 'O próximo papo começa aqui'}</span></div>{nav.activeVoice===channel.id ? <div className={"voice-content-row " + (nav.callChatOpen ? "call-chat-open" : "")}><MediaFocusStage /><aside className="call-chat-side" hidden={!nav.callChatOpen}><ChannelChat key={nav.activeVoice} name={nav.name} channel={"voice:"+nav.activeVoice} title={channel.name} compact visible={nav.callChatOpen && nav.view === "voice"} onClose={() => nav.setCallChatOpen(false)} /></aside></div> : <div className="voice-welcome"><div className="join-symbol"><Icon name="headphones" size={30} /></div><h2>{channel.id==='jogatina' ? 'Fecha o squad.' : 'Puxa uma cadeira.'}</h2><p>{nav.activeVoice ? 'Ao entrar aqui, você sai do outro canal de voz.' : 'Entre quando quiser conversar. Seu microfone só liga com a sua escolha.'}</p><label className="mic-option"><input type="checkbox" checked={nav.audio} onChange={e=>nav.setAudio(e.target.checked)} disabled={nav.joining} />Entrar com o microfone ligado</label><button className="button primary" onClick={()=>nav.joinVoice(channel.id)} disabled={nav.joining}>{nav.joining ? 'Conectando…' : 'Entrar em '+channel.name}<Icon name="arrow" /></button></div>}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><Icon name="voice" size={16} /><span>{state===ConnectionState.Connected ? 'Call' : 'Reconectando'} · {CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</span></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><PersonalAudioRenderer /></main></div>;
+  return <div className="app-shell room-shell community-shell"><Sidebar open={menuOpen} close={closeMenu} />{menuOpen && <button className="mobile-menu-backdrop" aria-label="Fechar canais" onClick={closeMenu} />}<main className="main-panel" id="principal"><PageHeader openMenu={() => setMenuOpen(true)} menuOpen={menuOpen} />{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><div className="room-heading"><div><span className="eyebrow">CANAL DE VOZ</span><h1>{channel.name}</h1></div><span className="connection-badge" role="status">{nav.joining ? 'Entrando no canal…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : nav.activeVoice===channel.id ? 'Na mesma sintonia' : 'O próximo papo começa aqui'}</span></div>{nav.activeVoice===channel.id ? <div className={"voice-content-row " + (nav.callChatOpen ? "call-chat-open" : "")}><MediaFocusStage /><aside className="call-chat-side" hidden={!nav.callChatOpen}><ChannelChat key={nav.activeVoice} name={nav.name} channel={"voice:"+nav.activeVoice} title={channel.name} compact visible={nav.callChatOpen && nav.view === "voice"} onClose={() => nav.setCallChatOpen(false)} /></aside></div> : <div className="voice-welcome"><div className="join-symbol"><Icon name="headphones" size={30} /></div><h2>{channel.id==='jogatina' ? 'Fecha o squad.' : 'Puxa uma cadeira.'}</h2><p>{nav.activeVoice ? 'Ao entrar aqui, você sai do outro canal de voz.' : 'Entre quando quiser conversar. Seu microfone só liga com a sua escolha.'}</p><label className="mic-option"><input type="checkbox" checked={nav.audio} onChange={e=>nav.setAudio(e.target.checked)} disabled={nav.joining} />Entrar com o microfone ligado</label><button className="button primary" onClick={()=>nav.joinVoice(channel.id)} disabled={nav.joining}>{nav.joining ? 'Conectando…' : 'Entrar em '+channel.name}<Icon name="arrow" /></button></div>}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><Icon name="voice" size={16} /><span>{state===ConnectionState.Connected ? 'Call' : 'Reconectando'} · {CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</span></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><PersonalAudioRenderer /></main></div>;
 }
 export default function App() { return <AccountGate><AuthenticatedApp /></AccountGate>; }
 function AuthenticatedApp() {

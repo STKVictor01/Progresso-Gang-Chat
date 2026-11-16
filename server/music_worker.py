@@ -1,7 +1,9 @@
 """One LiveKit connection per room; the parent sends credentials and commands on stdin."""
 import asyncio
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -14,21 +16,53 @@ def event(kind, **data):
     print(json.dumps({'event': kind, **data}), flush=True)
 
 
+def log(message):
+    # Vai para os registros do servidor; ajuda a descobrir por que uma música falhou.
+    print(str(message)[:500], file=sys.stderr, flush=True)
+
+
+def ydl_options():
+    options = {'format': 'bestaudio/best', 'noplaylist': True, 'quiet': True, 'no_warnings': True, 'socket_timeout': 15}
+    # Desde 2025 o YouTube exige um motor de JavaScript; o servidor já tem o Node.
+    if shutil.which('node'):
+        options['js_runtimes'] = {'node': {}}
+    cookies = os.environ.get('PG_CHAT_YTDLP_COOKIES')
+    if cookies and os.path.isfile(cookies):
+        options['cookiefile'] = cookies
+    return options
+
+
+def blocked(error):
+    text = str(error).lower()
+    return 'sign in to confirm' in text or 'not a bot' in text or 'http error 429' in text
+
+
+def resolve(item):
+    targets = [item['url']] if 'url' in item else ['ytsearch1:' + item['query'], 'scsearch1:' + item['query']]
+    last = None
+    for target in targets:
+        try:
+            with yt_dlp.YoutubeDL(ydl_options()) as ydl:
+                info = ydl.extract_info(target, download=False)
+            if info and 'entries' in info:
+                info = next((entry for entry in info['entries'] if entry), None)
+            if info and info.get('url'):
+                return info
+            last = RuntimeError('Nenhum resultado para ' + target.split(':', 1)[0])
+        except Exception as error:  # Tenta a próxima fonte (SoundCloud) quando a busca no YouTube falha.
+            log(f'{target.split(":", 1)[0] if target.startswith(("ytsearch", "scsearch")) else "youtube"}: {type(error).__name__}: {error}')
+            last = error
+    raise last or RuntimeError('Nenhum resultado')
+
+
 async def play(item, source):
     process = None
     try:
-        def resolve():
-            with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'noplaylist': True, 'quiet': True, 'no_warnings': True, 'socket_timeout': 15}) as ydl:
-                return ydl.extract_info(item['url'] if 'url' in item else 'ytsearch1:' + item['query'], download=False)
-
-        info = await asyncio.to_thread(resolve)
-        if 'entries' in info:
-            info = next((entry for entry in info['entries'] if entry), None)
-        if not info or not re.fullmatch(r'[a-zA-Z0-9_-]{11}', str(info.get('id', ''))):
-            raise RuntimeError('Nenhum vídeo encontrado')
+        info = await asyncio.to_thread(resolve, item)
+        youtube = re.fullmatch(r'[a-zA-Z0-9_-]{11}', str(info.get('id', ''))) and 'youtube' in str(info.get('extractor', 'youtube')).lower()
         headers = ''.join(f'{k}: {v}\r\n' for k, v in (info.get('http_headers') or {}).items() if '\n' not in str(v) and '\r' not in str(v))
         process = await asyncio.create_subprocess_exec(imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-headers', headers, '-i', info['url'], '-f', 's16le', '-ac', '2', '-ar', '48000', '-', stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        event('playing', title=str(info.get('title') or 'Música')[:200], url='https://www.youtube.com/watch?v=' + info['id'])
+        event('playing', title=str(info.get('title') or 'Música')[:200], url='https://www.youtube.com/watch?v=' + info['id'] if youtube else '')
         while True:
             try:
                 data = await process.stdout.readexactly(3840)
@@ -44,8 +78,12 @@ async def play(item, source):
     except asyncio.CancelledError:
         source.clear_queue()
         raise
-    except Exception:
-        event('error', message='Não foi possível encontrar ou reproduzir essa música. Tente outro nome ou link.')
+    except Exception as error:
+        log(f'falha ao tocar: {type(error).__name__}: {error}')
+        if blocked(error):
+            event('error', message='O YouTube bloqueou o servidor de música. Tente pelo nome da música, sem link.')
+        else:
+            event('error', message='Não foi possível encontrar ou reproduzir essa música. Tente outro nome ou link.')
     finally:
         if process and process.returncode is None:
             process.kill()
@@ -86,6 +124,7 @@ async def main():
 
 try:
     asyncio.run(main())
-except Exception:
+except Exception as failure:
+    log(f'conexão: {type(failure).__name__}: {failure}')
     event('error', message='O serviço de música não conseguiu se conectar à call.')
     sys.exit(1)

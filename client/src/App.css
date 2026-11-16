@@ -958,3 +958,44 @@ input::placeholder { color: #949387; }
   .media-thumbnails .lk-participant-metadata-item { padding:1px 5px; font-size:11px; }
   .media-thumbnails .lk-participant-metadata-item svg { width:12px; height:12px; }
 }
+
+/* Aviso de sincronização só aparece quando há algo a dizer. */
+.chat-sync:empty { display:none; }
+
+/* Entrada na call: quem já está lá e um botão direto. */
+.voice-view > .room-heading { display:none; }
+.voice-welcome { gap:6px; }
+.voice-welcome-people { display:flex; justify-content:center; margin-bottom:14px; }
+.voice-welcome-people .member-avatar { width:56px; height:56px; margin-left:-10px; border:3px solid var(--bg); object-fit:cover; font-size:15px; }
+.voice-welcome-people .member-avatar:first-child { margin-left:0; }
+.voice-welcome-people .join-symbol { margin:0; }
+.voice-welcome h2 { margin:0; font-size:26px; font-weight:700; letter-spacing:-.4px; }
+.voice-welcome p { margin:0; }
+.voice-welcome .mic-option { margin:14px 0 10px; }
+.voice-welcome .primary { width:100%; max-width:320px; }
+
+/* Descrição editável no próprio perfil. */
+.own-description { display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+.own-description label { display:flex; flex-direction:column; gap:8px; font-weight:600; font-size:13px; }
+.own-description textarea { min-height:90px; resize:vertical; }
+.own-description-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.own-description-actions small { color:#aaa99d; }
+.own-description p { margin:0; color:#d6c6a3; }
+.profile-dialog { width:min(460px,calc(100vw - 24px)); }
+.profile-dialog .profile-large-avatar { margin:20px auto; }
+
+/* Ordem dos canais (administração). */
+.channel-section + .channel-section { margin-top:20px; }
+.channel-order { margin:20px 0 28px; padding:16px; border:1px solid #34352f; border-radius:10px; }
+.channel-order h3 { margin:0 0 4px; }
+.channel-order > p { margin:0 0 12px; font-size:13px; }
+.channel-order-section { margin-bottom:12px; }
+.channel-order ol { list-style:none; margin:4px 0 0; padding:0 0 0 12px; border-left:2px solid #34352f; }
+.channel-order-row { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; }
+.channel-order-row > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.channel-order-row > span:last-child { display:flex; gap:4px; flex-shrink:0; }
+.channel-order-row .button { min-width:44px; min-height:40px; padding:6px; font-size:16px; }
+.channel-order .section-row strong { font-size:12px; letter-spacing:1.6px; text-transform:uppercase; color:#d6c6a3; }
+.own-description textarea, .admin-dialog textarea { font:inherit; font-size:15px; border:1px solid #68685d; border-radius:6px; }
+@media (max-width:767px) { .admin-dialog.profile-dialog { width:100vw; max-width:100vw; } }
+.own-description textarea { font-weight:400; }

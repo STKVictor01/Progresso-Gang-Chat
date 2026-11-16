@@ -39,7 +39,7 @@ function terminateMusicProcess(child) {
   if(process.platform==='win32') execFile('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true},()=>{});
   else { try { process.kill(-child.pid,'SIGTERM'); } catch { child.kill(); } }
 }
-export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
+export function installMusic(app, { log = app.log, accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
   const rooms = new Map();
   function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,ready:false,startupFailures:0,idleTimer:null,error:'',serial:0}); return rooms.get(room); }
   async function authorize(request,reply) {
@@ -81,7 +81,9 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
       const jwt=await token.toJwt();
       if(player.serial!==serial)return;
       if(!player.queue.length){player.starting=false;return;}
-      const child=spawnWorker(pythonPath,['-u',worker],{stdio:['pipe','pipe','ignore'],windowsHide:true,detached:process.platform!=='win32'});
+      const child=spawnWorker(pythonPath,['-u',worker],{stdio:['pipe','pipe','pipe'],windowsHide:true,detached:process.platform!=='win32'});
+      // Os detalhes das falhas do bot ficam nos registros do servidor (docker compose logs api).
+      let errors='';child.stderr?.on('data',chunk=>{errors=(errors+chunk.toString()).slice(-4000);const lines=errors.split('\n');errors=lines.pop();for(const line of lines)if(line.trim())log.warn({room},'música: '+line.slice(0,500));});
       player.process=child; player.starting=false; child.stdin.on('error',()=>{});
       child.stdin.write(JSON.stringify({serverUrl,token:jwt})+'\n');
       let buffer='';

@@ -122,7 +122,8 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   app.get('/soundboard', async (request,reply) => {
     const {channel}=request.query;
     if (typeof channel!=='string'||!(await accounts.voiceExists(channel))) return reply.code(400).send({error:'Canal inválido.'});
-    return {sounds:(await db.prepare('SELECT id,name,owner_id FROM soundboard WHERE channel=? ORDER BY created_at,id').all(channel)).map(sound=>({id:sound.id,name:sound.name,canDelete:request.user.role==='admin'||sound.owner_id===request.user.id}))};
+    // Os sons são compartilhados: o que for enviado em uma call aparece em todas.
+    return {sounds:(await db.prepare('SELECT id,name,owner_id FROM soundboard ORDER BY created_at,id').all()).map(sound=>({id:sound.id,name:sound.name,canDelete:request.user.role==='admin'||sound.owner_id===request.user.id}))};
   });
   app.post('/soundboard', {bodyLimit:441044}, async (request,reply) => {
     const channel=request.headers['x-sound-channel'], encodedName=request.headers['x-sound-name'];
@@ -132,17 +133,17 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if(!Buffer.isBuffer(b)||b.length<46||b.length>441044||b.toString('ascii',0,4)!=='RIFF'||b.readUInt32LE(4)!==b.length-8||b.toString('ascii',8,16)!=='WAVEfmt '||b.readUInt32LE(16)!==16||b.readUInt16LE(20)!==1||b.readUInt16LE(22)!==1||b.readUInt32LE(24)!==22050||b.readUInt32LE(28)!==44100||b.readUInt16LE(32)!==2||b.readUInt16LE(34)!==16||b.toString('ascii',36,40)!=='data'||b.readUInt32LE(40)!==b.length-44||(b.length-44)%2!==0) return reply.code(400).send({error:'Áudio inválido ou com mais de 10 segundos.'});
     const id=randomUUID();
     const saved=await db.transaction(async()=>{
-      await db.lock('soundboard:'+channel);
-      if((await db.prepare('SELECT COUNT(*) n FROM soundboard WHERE channel=?').get(channel)).n>=50)return false;
+      await db.lock('soundboard');
+      if((await db.prepare('SELECT COUNT(*) n FROM soundboard').get()).n>=100)return false;
       await db.prepare('INSERT INTO soundboard VALUES(?,?,?,?,?,?)').run(id,channel,name,request.user.id,b,Date.now());return true;
     });
-    if(!saved)return reply.code(409).send({error:'Este canal já tem 50 sons.'});
+    if(!saved)return reply.code(409).send({error:'O soundboard já tem 100 sons. Exclua algum para adicionar outro.'});
     return reply.code(201).send({id,name,canDelete:true});
   });
   app.get('/soundboard/:id', async (request,reply) => {
     const {id}=request.params, {channel}=request.query;
     if(!UUID.test(id)||typeof channel!=='string'||!(await accounts.voiceExists(channel))) return reply.code(404).send({error:'Som não encontrado.'});
-    const sound=(await db.prepare('SELECT data FROM soundboard WHERE id=? AND channel=?').get(id,channel));
+    const sound=(await db.prepare('SELECT data FROM soundboard WHERE id=?').get(id));
     if(!sound)return reply.code(404).send({error:'Som não encontrado.'});
     return reply.header('Content-Type','audio/wav').header('Content-Security-Policy',"default-src 'none'; sandbox").send(normalizeSoundboardWav(sound.data));
   });

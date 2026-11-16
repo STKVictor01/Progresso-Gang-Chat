@@ -279,6 +279,17 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     const result=(await db.prepare('UPDATE channels SET name=?,hint=? WHERE id=? AND kind=?').run(name.trim(),hint.trim(),request.params.id,request.params.kind));
     if(result.changes)recordEvent('channel-update',{actor:request.user.username,channel:name.trim()});return result.changes?{ok:true}:fail(reply,404,'Canal não encontrado.');
   });
+  // Ordem dos canais na barra lateral. A seção cujo primeiro canal vem antes aparece primeiro.
+  app.post('/admin/channels/order', async (request,reply) => {
+    const {order}=request.body??{};
+    if (!Array.isArray(order) || !order.length || order.length>200 || order.some(item=>!item || !['text','voice'].includes(item.kind) || typeof item.id!=='string' || item.id.length>100) || new Set(order.map(item=>item?.kind+':'+item?.id)).size!==order.length) return fail(reply,400,'Ordem de canais inválida.');
+    const existing=[...(await db.prepare('SELECT id,kind FROM channels').all())].map(channel=>channel.kind+':'+channel.id).sort();
+    const sent=order.map(item=>item.kind+':'+item.id);
+    if (JSON.stringify([...sent].sort())!==JSON.stringify(existing)) return fail(reply,409,'Os canais mudaram. Atualize a página e tente de novo.');
+    await db.transaction(async()=>{ for (const [index,item] of order.entries()) await db.prepare('UPDATE channels SET position=? WHERE id=? AND kind=?').run(index,item.id,item.kind); });
+    recordEvent('channel-update',{actor:request.user.username,channel:'ordem dos canais'});
+    return {ok:true};
+  });
   app.patch('/admin/site', async (request,reply) => {
     const {name,tagline}=request.body??{};
     if (typeof name!=='string'||name.trim().length<2||name.length>60||typeof tagline!=='string'||tagline.length>120) return fail(reply,400,'Nome: 2 a 60 caracteres. Descrição: até 120.');

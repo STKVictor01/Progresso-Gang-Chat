@@ -16,7 +16,21 @@ export function usePresence() {
   if (!value) throw Error('Presença não carregada');
   return value;
 }
+// No próprio perfil, a descrição pode ser escrita ali mesmo.
+function OwnDescription({profile,onSaved}:{profile:OnlineUser;onSaved:()=>Promise<void>}) {
+  const [text,setText] = useState(profile.description);
+  const [saving,setSaving] = useState(false);
+  const [message,setMessage] = useState('');
+  async function save(event:FormEvent) {
+    event.preventDefault(); setSaving(true); setMessage('');
+    try { await jsonApi('/api/profile','PATCH',{description:text,avatarId:profile.avatarUrl?.split('/').pop() ?? null}); await onSaved(); setMessage('Descrição salva.'); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Não foi possível salvar.'); }
+    finally { setSaving(false); }
+  }
+  return <form className="own-description" onSubmit={save}><label>Sua descrição<textarea maxLength={200} value={text} onChange={event => setText(event.target.value)} placeholder="Conta um pouco sobre você" disabled={saving}/></label><div className="own-description-actions"><small>{text.length}/200</small><button className="button primary" disabled={saving || text === profile.description}>{saving ? 'Salvando…' : 'Salvar descrição'}</button></div>{message && <p role="status">{message}</p>}</form>;
+}
 export function PresenceProvider({children}:{children:ReactNode}) {
+  const {user} = useAccount();
   const [people,setPeople] = useState<OnlineUser[]>([]);
   const [profiles,setProfiles] = useState<OnlineUser[]>([]);
   const [nameColors,setNameColors] = useState(false);
@@ -43,7 +57,7 @@ export function PresenceProvider({children}:{children:ReactNode}) {
     return () => { active = false; clearInterval(timer); };
   }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><div><h2 style={profile.nameColor ? {color:profile.nameColor} : undefined}>{profile.name}</h2>{profile.status && <p className="profile-status">{profile.status}</p>}</div><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<p>{profile.description || 'Sem descrição ainda.'}</p></dialog>}</PresenceContext.Provider>;
+  return <PresenceContext.Provider value={{people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><div><h2 style={profile.nameColor ? {color:profile.nameColor} : undefined}>{profile.name}</h2>{profile.status && <p className="profile-status">{profile.status}</p>}</div><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}{profile.id === user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : <p>{profile.description || 'Sem descrição ainda.'}</p>}</dialog>}</PresenceContext.Provider>;
 }
 function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUrl:string|null};className?:string}) {
   return person.avatarUrl ? <img className={className} src={person.avatarUrl} alt=""/> : <span className={className}>{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>;

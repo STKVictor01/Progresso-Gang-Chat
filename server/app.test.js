@@ -78,7 +78,7 @@ test('soundboard normalizes loud and quiet audio to -6 dB and preserves silence'
   const silence=Buffer.alloc(48);
   assert.deepEqual(normalizeSoundboardWav(silence),silence);
 });
-test('soundboard validates audio length and separates channels', async () => {
+test('soundboard validates audio length and shares sounds between calls', async () => {
   const app=await createApp({...options,dbPath:':memory:'});
   const wav=Buffer.alloc(44+44100);
   wav.write('RIFF',0);wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(22050,24);wav.writeUInt32LE(44100,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
@@ -88,8 +88,9 @@ test('soundboard validates audio length and separates channels', async () => {
     assert.equal(upload.statusCode,201,upload.body);
     const id=upload.json().id;
     assert.equal((await app.inject('/soundboard?channel=geral')).json().sounds.length,1);
-    assert.equal((await app.inject('/soundboard?channel=jogatina')).json().sounds.length,0);
-    assert.equal((await app.inject('/soundboard/'+id+'?channel=jogatina')).statusCode,404);
+    assert.equal((await app.inject('/soundboard?channel=jogatina')).json().sounds.length,1);
+    assert.equal((await app.inject('/soundboard/'+id+'?channel=jogatina')).statusCode,200);
+    assert.equal((await app.inject('/soundboard/'+id+'?channel=inexistente')).statusCode,404);
     const retrieved=await app.inject('/soundboard/'+id+'?channel=geral');assert.equal(retrieved.statusCode,200);assert.deepEqual(retrieved.rawPayload,wav);
     const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
     const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro teste',password:testPassword}});
@@ -529,5 +530,22 @@ test('status personalizado tem limite, é mantido por clientes antigos e aparece
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,status:''}})).statusCode,200);
     assert.equal((await profile()).status,'');
     assert.equal((await profile()).nameColor,'#ff8800');
+  } finally { await app.close(); }
+});
+
+test('administrador reordena canais e seções; membros não podem', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const channels=(await app.inject('/channels')).json();
+    const order=[...channels.voice.map(c=>({kind:'voice',id:c.id})).reverse(),...channels.text.map(c=>({kind:'text',id:c.id}))];
+    assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',payload:{order}})).statusCode,200);
+    const after=(await app.inject('/channels')).json();
+    assert.deepEqual(after.voice.map(c=>c.id),order.filter(c=>c.kind==='voice').map(c=>c.id));
+    assert.ok(Math.min(...after.voice.map(c=>Number(c.position)))<Math.min(...after.text.map(c=>Number(c.position))));
+    assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',payload:{order:order.slice(1)}})).statusCode,409);
+    assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',payload:{order:[...order,order[0]]}})).statusCode,400);
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro ordem',password:testPassword}});
+    assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf},payload:{order}})).statusCode,403);
   } finally { await app.close(); }
 });

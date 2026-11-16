@@ -286,6 +286,11 @@ input::placeholder { color: #949387; }
 .tile-card { position:relative; min-width:0; }
 .tile-label { color:var(--muted); font-size:11px; margin:0 0 8px; overflow-wrap:anywhere; }
 .tile-video { position:relative; }
+.participant-audio-target { position:relative; -webkit-touch-callout:none; }
+.member:has(.voice-member-trigger) { -webkit-touch-callout:none; }
+.participant-audio-button { position:absolute; z-index:5; right:8px; bottom:8px; min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:10px; color:var(--text); background:#191a17ed; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+.participant-audio-button:hover { background:#34352f; }
+.participant-audio-button:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 .tile-video > .tile-select { position:absolute; right:7px; top:7px; min-height:44px; padding:8px 10px; font-size:11px; background:#191a17ed; }
 .media-thumbnails .lk-participant-tile:only-child { max-width:none; }
 .compact-thumbnails .lk-participant-tile { aspect-ratio:16/10; }

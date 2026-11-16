@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { RoomContext, useRoomContext, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useConnectionState, useIsSpeaking, useLocalParticipant, useTracks } from '@livekit/components-react';
 import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
 import '@livekit/components-styles';
 import './App.css';
-import { CallPreferencesProvider, PersonalAudioRenderer, ParticipantAudioControls, QuickParticipantMute, NoiseSuppressionControl, VoiceEffectControl } from './call-audio';
+import { CallPreferencesProvider, PersonalAudioRenderer, QuickParticipantMute, NoiseSuppressionControl, VoiceEffectControl } from './call-audio';
+import { useParticipantAudioMenu } from './participant-audio-menu';
 import { useCallPreferences } from './call-preferences';
 import { microphoneOptions, readNoisePreference } from './call-settings';
 import { MediaFocusStage } from './media-focus';
@@ -56,31 +56,10 @@ function Member({ participant }: { participant: Participant }) {
   const botAvatar = participant.identity.startsWith('music-bot:') ? '/bot-musica.png' : null;
   const label = participant.name || 'Participante';
   const nameColor = profile?.nameColor ? {color:profile.nameColor} : undefined;
-  const settings = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  const [position,setPosition] = useState({top:0,left:0});
-  function openSettings() {
-    const rect = button.current?.getBoundingClientRect();
-    if (!rect || !settings.current) return;
-    if (settings.current.matches(':popover-open')) { settings.current.hidePopover(); return; }
-    // No painel direito, o ajuste abre à esquerda do membro quando não cabe à direita.
-    const width = Math.min(280, window.innerWidth - 16);
-    const preferred = rect.right + 8 + width <= window.innerWidth - 8 ? rect.right + 8 : rect.left - 8 - width;
-    const left = Math.max(8, Math.min(preferred, window.innerWidth - width - 8));
-    setPosition({left, top: Math.max(8, Math.min(rect.top, window.innerHeight - 280))});
-    settings.current.showPopover();
-    const height = settings.current.getBoundingClientRect().height;
-    setPosition({left, top: Math.max(8, Math.min(rect.top, window.innerHeight - height - 8))});
-  }
-  useEffect(() => {
-    const close = () => { if (settings.current?.matches(':popover-open')) settings.current.hidePopover(); };
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
-    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); };
-  }, []);
-  return <li className={`member ${speaking ? 'speaking' : ''}`}>
+  const {handlers,menu,openSettings} = useParticipantAudioMenu(participant);
+  return <li className={`member ${speaking ? 'speaking' : ''}`} {...handlers}>
     <button className="voice-profile-button" disabled={!profile} onClick={()=>profile && showProfile(profile.id)} aria-label={'Ver perfil de '+label}>{profile?.avatarUrl || botAvatar ? <img className="member-avatar" src={profile?.avatarUrl || botAvatar || undefined} alt=""/> : <span className="member-avatar">{label.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}</button>
-    {participant.isLocal ? <span className="member-name" style={nameColor}>{label}<small>Você</small></span> : <><button className="voice-member-trigger" ref={button} onClick={openSettings} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name" style={nameColor}>{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Áudio de '+label}><strong>{label}</strong><ParticipantAudioControls participant={participant} /></div>,document.body)}</>}
+    {participant.isLocal ? <span className="member-name" style={nameColor}>{label}<small>Você</small></span> : <><button className="voice-member-trigger" onClick={event=>openSettings(event.currentTarget,true)} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name" style={nameColor}>{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{menu}</>}
     <QuickParticipantMute participant={participant} />
   </li>;
 }

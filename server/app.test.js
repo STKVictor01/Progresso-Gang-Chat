@@ -283,6 +283,33 @@ test('accounts enforce owner reservation, sessions, CSRF, author ownership and a
   }finally{await app.close();}
 });
 
+test('rotas administrativas exigem administrador também com caminhos codificados',async()=>{
+  const token=randomBytes(32).toString('base64url'),origin='http://localhost:5173';
+  const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:token});
+  const headers=response=>({origin,cookie:response.cookies.map(item=>item.name+'='+item.value).join('; '),'x-csrf-token':response.json().csrf});
+  const request=(auth,method,url,payload)=>app.inject({headers:auth,method,url,payload});
+  try {
+    const owner=await request({origin},'POST','/auth/setup',{token,password:testPassword});
+    assert.equal(owner.statusCode,200);
+    const admin=headers(owner);
+    const invite=await request(admin,'POST','/admin/invites',{});
+    const registered=await request({origin},'POST','/auth/register',{token:invite.json().token,username:'Membro regressão',password:testPassword});
+    assert.equal(registered.statusCode,201);
+    const member=headers(registered);
+    for(const prefix of ['/admin','/%61dmin','/ad%6Din','/a%64min','/%61%64%6d%69%6e']) {
+      for(const route of ['/users','/logs']) {
+        assert.equal((await request({},'GET',prefix+route)).statusCode,401,prefix+route);
+        assert.equal((await request(member,'GET',prefix+route)).statusCode,403,prefix+route);
+        assert.equal((await request(admin,'GET',prefix+route)).statusCode,200,prefix+route);
+      }
+      assert.equal((await request(member,'POST',prefix+'/invites',{})).statusCode,403,prefix);
+      assert.equal((await request(member,'PATCH',prefix+'/site',{name:'Alteração indevida',tagline:'Teste'})).statusCode,403,prefix);
+    }
+    assert.equal((await app.inject('/site')).json().name,'Progresso Gang - Chat');
+    assert.equal((await app.inject('/%68ealth')).statusCode,200);
+  } finally {await app.close();}
+});
+
 test('password changes revoke other sessions and auth attempts are rate limited',async()=>{
   const token=randomBytes(32).toString('base64url'),origin='http://localhost:5173';
   const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:token});

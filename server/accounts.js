@@ -67,7 +67,8 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
   const fail = (reply, code, error) => reply.code(code).send({ error });
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Cache-Control','no-store').header('X-Content-Type-Options','nosniff');
-    const path = request.url.split('?')[0];
+    // Autorize a rota reconhecida pelo Fastify, inclusive quando a URL é codificada.
+    const path = request.routeOptions.url ?? request.url.split('?')[0];
     if (!['GET','HEAD','OPTIONS'].includes(request.method) && !allowedOrigins.includes(request.headers.origin)) return fail(reply,403,'Origem do acesso não autorizada. Atualize a página.');
     const token = request.cookies.pg_session;
     if (token && token.length < 200) {

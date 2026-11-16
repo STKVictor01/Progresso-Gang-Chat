@@ -81,6 +81,10 @@ npm test
 
 Os testes do servidor usam bancos isolados e nao escrevem na conversa da comunidade.
 
+A [politica de seguranca](SECURITY.md) orienta relatos privados. O
+[roteiro de testes com Trail of Bits Skills e Strix](docs/security-testing.md)
+explica a revisao e o laboratorio descartavel com dados ficticios.
+
 Para verificar segredos, instale o [Gitleaks oficial](https://github.com/gitleaks/gitleaks) e execute `node scripts/check-secrets.cjs` na raiz. Ative a verificacao antes de cada commit com `git config core.hooksPath .githooks`. O GitHub Actions tambem verifica o historico ao receber commits e pull requests.
 
 ## Dados locais

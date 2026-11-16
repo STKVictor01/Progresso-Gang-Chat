@@ -513,3 +513,21 @@ test('biblioteca de GIFs usa a chave só no servidor e guarda o GIF como anexo',
     assert.equal(message.json().attachments[0].id,id);
   } finally { await app.close(); }
 });
+
+test('status personalizado tem limite, é mantido por clientes antigos e aparece na presença', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const profile=async()=>(await app.inject('/presence')).json().profiles[0];
+    assert.equal((await profile()).status,'');
+    assert.equal((await app.inject('/presence')).json().statuses,true);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,status:'  Jogando Valorant 🎮  '}})).statusCode,200);
+    assert.equal((await profile()).status,'Jogando Valorant 🎮');
+    for (const status of ['x'.repeat(61),'duas\nlinhas',42]) assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,status}})).statusCode,400);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'outra',avatarId:null,nameColor:'#ff8800'}})).statusCode,200);
+    assert.equal((await profile()).status,'Jogando Valorant 🎮');
+    assert.equal((await profile()).nameColor,'#ff8800');
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,status:''}})).statusCode,200);
+    assert.equal((await profile()).status,'');
+    assert.equal((await profile()).nameColor,'#ff8800');
+  } finally { await app.close(); }
+});

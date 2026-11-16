@@ -108,10 +108,13 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   (await db.exec(`CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER NOT NULL,channel TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(message_id,kind));
     CREATE INDEX IF NOT EXISTS message_events_channel_seq ON message_events(channel,seq);
     INSERT OR IGNORE INTO message_events(message_id,channel,kind) SELECT id,channel,'created' FROM messages;`));
-  if (!(await db.prepare('PRAGMA table_info(profiles)').all()).some(c=>c.name==='name_color')) (await db.exec('ALTER TABLE profiles ADD COLUMN name_color TEXT'));
+  const profileColumns=(await db.prepare('PRAGMA table_info(profiles)').all()).map(c=>c.name);
+  if (!profileColumns.includes('name_color')) (await db.exec('ALTER TABLE profiles ADD COLUMN name_color TEXT'));
+  if (!profileColumns.includes('status_text')) (await db.exec("ALTER TABLE profiles ADD COLUMN status_text TEXT NOT NULL DEFAULT ''"));
   }
-  // No PostgreSQL a coluna vem da migração; até ela ser aplicada, a cor do nick fica desativada.
-  const nameColors = db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='profiles' AND column_name='name_color'").get());
+  // No PostgreSQL as colunas vêm da migração; até ela ser aplicada, a cor do nick e o status ficam desativados.
+  const profileColumn = async name => db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='profiles' AND column_name=?").get(name));
+  const nameColors = await profileColumn('name_color'), statuses = await profileColumn('status_text');
   // The launcher compares this version to restart a backend left running from before an update.
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], database:db.kind, pid:process.pid }));
   app.get('/ready', async (_request,reply) => {try {await db.prepare('SELECT 1 AS ok').get();return {ready:true};} catch {return reply.code(503).send({ready:false});}});
@@ -299,19 +302,24 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const now = Date.now();
     online.set(request.user.id, now);
     for (const [id, seen] of online) if (now-seen > 45000) online.delete(id);
-    const rows = (await db.prepare(`SELECT u.id,u.username,u.active,p.description,p.avatar_id${nameColors?',p.name_color':''} FROM users u LEFT JOIN profiles p ON p.user_id=u.id`).all());
-    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null });
-    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors };
+    const rows = (await db.prepare(`SELECT u.id,u.username,u.active,p.description,p.avatar_id${nameColors?',p.name_color':''}${statuses?',p.status_text':''} FROM users u LEFT JOIN profiles p ON p.user_id=u.id`).all());
+    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null, status:user.status_text || '' });
+    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses };
   });
   app.patch('/profile', async (request,reply) => {
-    const {description,avatarId,nameColor} = request.body ?? {};
+    const {description,avatarId,nameColor,status} = request.body ?? {};
     if (typeof description !== 'string' || description.length > 200 || !(avatarId === null || typeof avatarId === 'string' && UUID.test(avatarId))) return reply.code(400).send({error:'Descrição ou imagem inválida.'});
     if (!(nameColor === undefined || nameColor === null || readableNameColor(nameColor))) return reply.code(400).send({error:'Escolha uma cor no formato #RRGGBB e clara o bastante para ler no fundo escuro.'});
     if (nameColor && !nameColors) return reply.code(503).send({error:'A cor do nick ainda não foi ativada no servidor.'});
+    if (!(status === undefined || typeof status === 'string' && status.trim().length <= 60 && !/[ -]/.test(status))) return reply.code(400).send({error:'O status pode ter até 60 caracteres, em uma linha.'});
+    if (status?.trim() && !statuses) return reply.code(503).send({error:'O status personalizado ainda não foi ativado no servidor.'});
     if (avatarId && !(await db.prepare("SELECT id FROM attachments WHERE id=? AND owner_id=? AND size<=? AND mime LIKE 'image/%' AND id NOT IN (SELECT attachment_id FROM message_attachments)").get(avatarId,request.user.id,MAX_UPLOAD_BYTES))) return reply.code(400).send({error:'Envie sua imagem novamente. Fotos de perfil têm limite de 8 MB.'});
-    // Clientes antigos não enviam a cor; nesse caso ela é mantida.
-    if (nameColors && nameColor !== undefined) (await db.prepare('INSERT INTO profiles(user_id,description,avatar_id,name_color) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id,name_color=excluded.name_color').run(request.user.id,description.trim(),avatarId,nameColor?nameColor.toLowerCase():null));
-    else (await db.prepare('INSERT INTO profiles(user_id,description,avatar_id) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id').run(request.user.id,description.trim(),avatarId));
+    // Clientes antigos não enviam a cor nem o status; nesse caso eles são mantidos.
+    const fields = { description:description.trim(), avatar_id:avatarId };
+    if (nameColors && nameColor !== undefined) fields.name_color = nameColor ? nameColor.toLowerCase() : null;
+    if (statuses && status !== undefined) fields.status_text = status.trim();
+    const columns = Object.keys(fields);
+    (await db.prepare(`INSERT INTO profiles(user_id,${columns.join(',')}) VALUES(?${',?'.repeat(columns.length)}) ON CONFLICT(user_id) DO UPDATE SET ${columns.map(column=>column+'=excluded.'+column).join(',')}`).run(request.user.id,...Object.values(fields)));
     return {ok:true};
   });
   app.get('/messages', async (request,reply) => {

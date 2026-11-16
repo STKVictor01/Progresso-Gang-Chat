@@ -1,19 +1,43 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PreferencesContext, useCallPreferences } from './call-preferences';
-import { AudioTrack, useLocalParticipant, useTracks } from '@livekit/components-react';
-import { LocalAudioTrack, Track } from 'livekit-client';
+import { AudioTrack, useLocalParticipant, useRoomContext, useTracks } from '@livekit/components-react';
+import { LocalAudioTrack, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
-import { applyNoiseSuppression, isListenerMuted, listenerVolume, readNoisePreference, toggleListenerMute } from './call-settings';
+import { applyNoiseSuppression, isListenerMuted, listenerId, listenerVolume, readNoisePreference, readVolumePreferences, toggleListenerMute } from './call-settings';
+import { useAccount } from './accounts';
 import type { ListenerPreferences } from './call-settings';
 import { createVoiceProcessor } from './voice-effects';
 import type { VoiceEffect } from './voice-effects';
 
 export function CallPreferencesProvider({ children }: { children: ReactNode }) {
-  const { microphoneTrack, isMicrophoneEnabled } = useLocalParticipant();
+  const { microphoneTrack, isMicrophoneEnabled, localParticipant } = useLocalParticipant();
+  const room = useRoomContext();
+  const {user} = useAccount();
+  const [saved] = useState(() => readVolumePreferences(user.id));
   const [muted, setMuted] = useState<ListenerPreferences>({});
-  const [volumes, setVolumes] = useState<Record<string, number>>({});
-  const [screenVolumes, setScreenVolumes] = useState<Record<string, number>>({});
+  const [volumes, setVolumes] = useState<Record<string, number>>(saved.volumes);
+  const [screenVolumes, setScreenVolumes] = useState<Record<string, number>>(saved.screenVolumes);
+  const [deafened, setDeafened] = useState(false);
+  const [deafenBusy, setDeafenBusy] = useState(false);
+  const [deafenError, setDeafenError] = useState('');
+  useEffect(() => {
+    const reset = () => { setDeafened(false); setDeafenError(''); };
+    room.on(RoomEvent.Disconnected, reset);
+    return () => { room.off(RoomEvent.Disconnected, reset); };
+  }, [room]);
+  useEffect(() => {
+    try { localStorage.setItem('pg-call-volumes:' + user.id, JSON.stringify({volumes,screenVolumes})); } catch { /* Storage is optional. */ }
+  }, [user.id,volumes,screenVolumes]);
+  async function toggleDeafen() {
+    if (deafenBusy) return;
+    setDeafenError('');
+    if (deafened) { setDeafened(false); return; }
+    setDeafened(true); setDeafenBusy(true);
+    try { await localParticipant.setMicrophoneEnabled(false); }
+    catch { setDeafened(false); setDeafenError('Não foi possível silenciar o microfone. Tente novamente.'); }
+    finally { setDeafenBusy(false); }
+  }
   const [noiseSuppression, setNoiseSuppression] = useState(readNoisePreference);
   const [noiseBusy, setNoiseBusy] = useState(false);
   const [applied, setApplied] = useState<boolean | undefined>();
@@ -70,37 +94,39 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('pg-noise-suppression', String(next)); } catch { /* Storage is optional. */ }
   }
   const noiseStatus = !noiseSupported ? 'Este navegador não oferece esse filtro.' : error || (noiseBusy ? 'Ajustando filtro…' : !track || track.mediaStreamTrack.readyState === 'ended' ? 'A opção será aplicada ao ligar o microfone.' : !noiseSuppression ? 'Supressão de ruído desligada.' : applied === true ? 'Redução de ruído ativa no microfone.' : applied === false ? 'O navegador não ativou a redução de ruído.' : 'Redução de ruído solicitada ao navegador.');
-  return <PreferencesContext.Provider value={{ muted, volumes, screenVolumes, setScreenVolume: (identity, volume) => setScreenVolumes(previous => ({...previous, [identity]: volume})), setVolume: (identity, volume) => setVolumes(previous => ({...previous, [identity]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, identity, source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
+  return <PreferencesContext.Provider value={{ deafened, deafenBusy, deafenError, toggleDeafen, muted, volumes, screenVolumes, setScreenVolume: (identity, volume) => setScreenVolumes(previous => ({...previous, [listenerId(identity)]: volume})), setVolume: (identity, volume) => setVolumes(previous => ({...previous, [listenerId(identity)]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, listenerId(identity), source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
 }
 export function PersonalAudioRenderer() {
-  const { muted, volumes, screenVolumes } = useCallPreferences();
+  const { muted, volumes, screenVolumes, deafened } = useCallPreferences();
   const audio = useTracks([Track.Source.Microphone, Track.Source.ScreenShareAudio, Track.Source.Unknown], { onlySubscribed: false }).filter(ref => !ref.participant.isLocal && ref.publication.kind === Track.Kind.Audio);
   return <div hidden aria-hidden="true">{audio.map(ref => {
     const source = ref.source === Track.Source.ScreenShareAudio ? 'screen' : 'microphone';
-    const silenced = isListenerMuted(muted, ref.participant.identity, source);
-    return <AudioTrack key={ref.publication.trackSid} trackRef={ref} volume={listenerVolume(muted, volumes, ref.participant.identity, source, screenVolumes)} muted={silenced} data-audio-owner={ref.participant.name || ref.participant.identity} data-audio-kind={source} data-locally-muted={silenced} />;
+    const id = listenerId(ref.participant.identity);
+    const silenced = deafened || isListenerMuted(muted, id, source);
+    return <AudioTrack key={ref.publication.trackSid} trackRef={ref} volume={deafened ? 0 : listenerVolume(muted, volumes, id, source, screenVolumes)} muted={silenced} data-audio-owner={ref.participant.name || ref.participant.identity} data-audio-kind={source} data-locally-muted={silenced} />;
   })}</div>;
 }
 export function QuickParticipantMute({ participant }: { participant: Participant }) {
   const { muted, toggleMute } = useCallPreferences();
   if (participant.isLocal) return null;
-  const silenced = isListenerMuted(muted, participant.identity, 'microphone');
+  const silenced = isListenerMuted(muted, listenerId(participant.identity), 'microphone');
   const label = participant.name || 'participante';
   return <button className={'quick-mute ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} aria-label={(silenced ? 'Ouvir voz de ' : 'Silenciar voz de ') + label + ' só para mim'} title={silenced ? 'Ouvir este amigo' : 'Silenciar este amigo só para você'} onClick={() => toggleMute(participant.identity, 'microphone')}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" />{silenced ? <path d="m16 9 6 6m-6 0 6-6" /> : <path d="M16 8a6 6 0 0 1 0 8" />}</svg></button>;
 }
 export function ParticipantAudioControls({ participant }: { participant: Participant }) {
   const { muted, toggleMute, volumes, setVolume, screenVolumes, setScreenVolume } = useCallPreferences();
   const name = participant.name || 'Participante';
-  const volume = Math.round((volumes[participant.identity] ?? 1) * 100);
+  const id = listenerId(participant.identity);
+  const volume = Math.round((volumes[id] ?? 1) * 100);
   return <div className="participant-audio-controls">
     <label>Volume da voz de {name} <output>{volume}%</output>
       <input type="range" min="0" max="100" value={volume} onChange={event => setVolume(participant.identity, Number(event.target.value) / 100)} />
     </label>
-    <label>Volume da transmissão de {name} <output>{Math.round((screenVolumes[participant.identity] ?? 1) * 100)}%</output>
-      <input type="range" min="0" max="100" value={Math.round((screenVolumes[participant.identity] ?? 1) * 100)} onChange={event => setScreenVolume(participant.identity, Number(event.target.value) / 100)} />
+    <label>Volume da transmissão de {name} <output>{Math.round((screenVolumes[id] ?? 1) * 100)}%</output>
+      <input type="range" min="0" max="100" value={Math.round((screenVolumes[id] ?? 1) * 100)} onChange={event => setScreenVolume(participant.identity, Number(event.target.value) / 100)} />
     </label>
     {(['microphone', 'screen'] as const).map(source => {
-      const silenced = isListenerMuted(muted, participant.identity, source);
+      const silenced = isListenerMuted(muted, id, source);
       const label = source === 'microphone' ? 'voz' : 'transmissão';
       return <button key={source} className={'button subtle ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} onClick={() => toggleMute(participant.identity, source)}>{silenced ? 'Reativar' : 'Silenciar'} {label}</button>;
     })}

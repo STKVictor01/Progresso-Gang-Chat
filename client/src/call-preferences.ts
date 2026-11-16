@@ -2,6 +2,10 @@ import { createContext, useContext } from 'react';
 import type { AudioSource, ListenerPreferences } from './call-settings';
 import type { VoiceEffect } from './voice-effects';
 export type CallPreferences = {
+  deafened: boolean;
+  deafenBusy: boolean;
+  deafenError: string;
+  toggleDeafen: () => Promise<void>;
   muted: ListenerPreferences;
   toggleMute: (identity: string, source: AudioSource) => void;
   volumes: Record<string, number>;

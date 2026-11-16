@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyNoiseSuppression, isListenerMuted, listenerVolume, toggleListenerMute } from '../src/call-settings.ts';
+import { applyNoiseSuppression, isListenerMuted, listenerId, listenerVolume, readVolumePreferences, toggleListenerMute } from '../src/call-settings.ts';
+
+test('volume salvo usa a conta estável em novas sessões e separa transmissões', () => {
+  const user='12345678-1234-1234-1234-123456789abc';
+  const owner='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const saved={volumes:{[user]:0.35,'music-bot':0.2,invalid:0.5},screenVolumes:{[user]:0.8}};
+  globalThis.localStorage={getItem:key=>key==='pg-call-volumes:'+owner?JSON.stringify(saved):null};
+  try {
+    const preferences=readVolumePreferences(owner);
+    assert.equal(listenerId(user+':primeira'),user);
+    assert.equal(listenerId(user+':segunda'),user);
+    assert.equal(listenerId('music-bot:nova-sessao'),'music-bot');
+    assert.equal(listenerVolume({},preferences.volumes,listenerId(user+':segunda'),'microphone'),0.35);
+    assert.equal(listenerVolume({},preferences.volumes,user,'screen',preferences.screenVolumes),0.8);
+    assert.equal(preferences.volumes.invalid,undefined);
+    assert.deepEqual(readVolumePreferences(user),{volumes:{},screenVolumes:{}});
+  } finally { delete globalThis.localStorage; }
+});
 
 test('volume altera apenas a voz escolhida e respeita os silenciamentos', () => {
   const volumes = { amigoA: 0.35 };

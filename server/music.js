@@ -34,9 +34,14 @@ export function parseMusicInput(value) {
 export function musicRoomAvailable(rooms, room, limit) {
   return Boolean(rooms.get(room)?.process || rooms.get(room)?.starting) || [...rooms.values()].filter(player=>player.process || player.starting).length<limit;
 }
-export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity }) {
+function terminateMusicProcess(child) {
+  if(!child || !child.pid || child.exitCode!==null)return;
+  if(process.platform==='win32') execFile('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true},()=>{});
+  else { try { process.kill(-child.pid,'SIGTERM'); } catch { child.kill(); } }
+}
+export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
   const rooms = new Map();
-  function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,error:'',serial:0}); return rooms.get(room); }
+  function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,ready:false,startupFailures:0,idleTimer:null,error:'',serial:0}); return rooms.get(room); }
   async function authorize(request,reply) {
     const room=request.params.room;
     if (!(await accounts.voiceExists(room))) { reply.code(400).send({error:'Canal inválido.'});return false; }
@@ -47,37 +52,50 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
     } catch { reply.code(503).send({error:'Não foi possível verificar quem está na call.'});return false; }
   }
   function stopProcess(player) {
-    const child=player.process; player.serial++; player.process=null; player.starting=false;
-    if(child && child.pid && child.exitCode===null) {
-      if(process.platform==='win32') execFile('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true},()=>{});
-      else { try { process.kill(-child.pid,'SIGTERM'); } catch { child.kill(); } }
-    }
+    const child=player.process; player.serial++; player.process=null; player.starting=false; player.ready=false;
+    clearTimeout(player.idleTimer); player.idleTimer=null;
+    terminateWorker(child);
   }
   async function next(room) {
     const player=state(room);
-    if(player.process || player.starting || !player.queue.length) { if (!player.process && !player.starting) player.current=null;return; }
-    player.starting=true; const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.error='';
+    if(player.current || player.starting) return;
+    if(!player.queue.length) {
+      if(player.process && player.ready && !player.idleTimer) {
+        player.idleTimer=setTimeout(()=>{if(!player.current && !player.queue.length)stopProcess(player);},idleMs);
+        player.idleTimer.unref();
+      }
+      return;
+    }
+    clearTimeout(player.idleTimer); player.idleTimer=null;
+    if(player.process) {
+      if(!player.ready)return;
+      const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.error='';
+      player.process.stdin.write(JSON.stringify({command:'play',...item})+'\n');
+      return;
+    }
+    player.starting=true;
     const serial=++player.serial;
     try {
-      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'1h'});
+      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'24h'});
       token.addGrant({roomJoin:true,room,canPublish:true,canSubscribe:false});
       const jwt=await token.toJwt();
       if(player.serial!==serial)return;
-      const child=spawn(python,['-u',worker],{stdio:['pipe','pipe','ignore'],windowsHide:true,detached:process.platform!=='win32'});
+      if(!player.queue.length){player.starting=false;return;}
+      const child=spawnWorker(pythonPath,['-u',worker],{stdio:['pipe','pipe','ignore'],windowsHide:true,detached:process.platform!=='win32'});
       player.process=child; player.starting=false; child.stdin.on('error',()=>{});
-      child.stdin.end(JSON.stringify({...item,serverUrl,token:jwt})+'\n');
+      child.stdin.write(JSON.stringify({serverUrl,token:jwt})+'\n');
       let buffer='';
-      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=event.message;}catch{}});
+      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='ready'){player.ready=true;player.startupFailures=0;void next(room);}if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=String(event.message).slice(0,200);if(event.event==='disconnected')terminateWorker(child);if(event.event==='finished'){player.current=null;void next(room);}}catch{}});
       child.on('error',()=>{if(player.serial===serial)player.error='O serviço de música não iniciou.';});
-      child.on('close',code=>{if(player.serial!==serial)return;player.process=null;player.current=null;if(code && !player.error)player.error='Não foi possível reproduzir esse link.';void next(room);});
-    } catch { if(player.serial===serial){player.starting=false;player.current=null;player.error='Não foi possível iniciar a música.';void next(room);} }
+      child.on('close',code=>{if(player.serial!==serial)return;if(!player.ready)player.startupFailures++;player.process=null;player.ready=false;clearTimeout(player.idleTimer);player.idleTimer=null;if(player.current){const {title:_title,...item}=player.current;if(!item.retried)player.queue.unshift({...item,retried:true});player.current=null;}if(code && !player.error)player.error='O serviço de música foi interrompido.';if(player.queue.length && child.pid && player.startupFailures<2)void next(room);});
+    } catch { if(player.serial===serial){player.starting=false;player.error='Não foi possível iniciar a música.';} }
   }
-  function snapshot(room) {const p=state(room);return {current:p.current,queue:p.queue,error:p.error,available:existsSync(python)};}
+  function snapshot(room) {const p=state(room);return {current:p.current,queue:p.queue,error:p.error,available:existsSync(pythonPath)};}
   app.get('/music/:room',async(request,reply)=>{if(!await authorize(request,reply))return;return snapshot(request.params.room);});
   app.post('/music/:room',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(request,reply)=>{
     if(!await authorize(request,reply))return;
     const item=parseMusicInput(request.body?.url);if(!item)return reply.code(400).send({error:'Digite o nome da música ou um link válido do YouTube.'});
-    if(!existsSync(python))return reply.code(503).send({error:'O serviço de música não está instalado neste computador.'});
+    if(!existsSync(pythonPath))return reply.code(503).send({error:'O serviço de música não está instalado neste computador.'});
     if(!musicRoomAvailable(rooms,request.params.room,maxConcurrentRooms))return reply.code(429).send({error:'O limite de calls com música foi atingido. Tente novamente mais tarde.'});
     const player=state(request.params.room);if(player.queue.length>=20)return reply.code(429).send({error:'A fila está cheia.'});
     player.queue.push(item);void next(request.params.room);return reply.code(202).send(snapshot(request.params.room));
@@ -87,16 +105,10 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
     const player=state(request.params.room),action=request.params.action;
     if(!['skip','stop'].includes(action))return reply.code(400).send({error:'Comando inválido.'});
     if(action==='stop')player.queue=[];
-    stopProcess(player);player.current=null;
-    if(action==='skip')void next(request.params.room);
+    else if(!player.current)player.queue.shift();
+    if(player.current && player.process && player.ready)player.process.stdin.write(JSON.stringify({command:'skip'})+'\n');
+    else void next(request.params.room);
     return snapshot(request.params.room);
   });
-  const idleCheck=setInterval(()=>{for(const [room,player] of rooms) {
-    if (!player.process && !player.starting) continue;
-    void roomService.listParticipants(room).then(members=>{
-      if (!members.some(member=>!member.identity.startsWith('music-bot:'))) { player.queue=[];stopProcess(player);player.current=null; }
-    }).catch(()=>{});
-  }},15000);
-  idleCheck.unref();
-  app.addHook('onClose',async()=>{clearInterval(idleCheck);for(const player of rooms.values())stopProcess(player);});
+  app.addHook('onClose',async()=>{for(const player of rooms.values())stopProcess(player);});
 }

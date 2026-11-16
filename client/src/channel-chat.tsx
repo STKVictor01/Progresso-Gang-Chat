@@ -11,7 +11,24 @@ import type { GifResult } from './gif-picker';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type Reply = {id:number;name?:string;text?:string;user_id?:string|null;deleted:boolean};
-type TextMessage = { reply?:Reply|null; id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
+type TextMessage = { reply?:Reply|null; id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[]; pending?: 'sending' | 'failed'; clientId?: string };
+// Mensagens confirmadas seguem a ordem do servidor; as que ainda estão saindo ficam no fim.
+function ordered(list: TextMessage[]) { const real=list.filter(message=>!message.pending).sort((a,b)=>a.id-b.id); return [...real,...list.filter(message=>message.pending)]; }
+const now = () => Date.now();
+const dedupe = (list: TextMessage[]) => [...new Map(list.map(message=>[message.id,message])).values()];
+// Quando a própria mensagem chega pela atualização antes da resposta do envio, a cópia provisória sai da lista.
+function absorb(previous: TextMessage[], incoming: TextMessage[], userId: string) {
+  let rest = previous;
+  for (const message of incoming) {
+    if (message.user_id !== userId || message.attachments?.length) continue;
+    const index = rest.findIndex(item => item.pending === 'sending' && item.text === message.text && (item.reply?.id ?? null) === (message.reply?.id ?? null));
+    if (index >= 0) rest = rest.filter((_, position) => position !== index);
+  }
+  return rest;
+}
+function pendingMessage(id: number, user: {id: string; name: string}, channel: string, text: string, replyTo: TextMessage | null): TextMessage {
+  return {id,name:user.name,text,timestamp:Date.now(),channel,user_id:user.id,canDelete:false,attachments:[],reply:replyTo?{id:replyTo.id,name:replyTo.name,text:replyTo.text,user_id:replyTo.user_id,deleted:false}:null,pending:'sending',clientId:crypto.randomUUID()};
+}
 type PendingFile = { id: string; file: File; preview: string | null };
 const MB = 1024 * 1024;
 const ACCEPT = ['image/png','image/jpeg','image/gif','image/webp'];
@@ -26,18 +43,8 @@ function MessageAvatar({message}:{message:TextMessage}) {
   if (!profile) return <span className="member-avatar" aria-hidden="true">{initials}</span>;
   return <button className="member-avatar message-avatar" onClick={()=>showProfile(profile.id)} aria-label={'Ver perfil de '+name} title={'Ver perfil de '+name}>{profile.avatarUrl && failedUrl!==profile.avatarUrl ? <img src={profile.avatarUrl} alt="" onError={()=>setFailedUrl(profile.avatarUrl)} /> : initials}</button>;
 }
-function MessageOptions({message, onReply, onDelete}:{message:TextMessage; onReply:()=>void; onDelete?:()=>void}) {
-  const menu=useRef<HTMLDivElement>(null);
-  function toggle(event:React.MouseEvent<HTMLButtonElement>) {
-    const panel=menu.current;
-    if(!panel)return;
-    if(panel.matches(':popover-open')) {panel.hidePopover();return;}
-    const rect=event.currentTarget.getBoundingClientRect();
-    panel.style.left=Math.max(8,Math.min(rect.right-180,window.innerWidth-188))+'px';
-    panel.style.top=Math.max(8,Math.min(rect.bottom+4,window.innerHeight-110))+'px';
-    panel.showPopover();
-  }
-  return <><button className="message-options-trigger" onClick={toggle} aria-label={'Mais opções para mensagem de '+message.name} title="Mais opções" aria-haspopup="dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>{createPortal(<div className="message-options-popover" ref={menu} popover="auto" role="dialog" aria-label="Opções da mensagem"><button onClick={()=>{menu.current?.hidePopover();onReply();}}>Responder</button>{onDelete&&<button onClick={()=>{menu.current?.hidePopover();onDelete();}}>Excluir mensagem</button>}</div>,document.body)}</>;
+function MessageOptionsButton({message, onOpen}:{message:TextMessage; onOpen:(x:number,y:number)=>void}) {
+  return <button className="message-options-trigger" onClick={event=>{const rect=event.currentTarget.getBoundingClientRect();onOpen(rect.right-190,rect.bottom+4);}} aria-label={'Mais opções para mensagem de '+message.name} title="Mais opções" aria-haspopup="menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>;
 }
 function ImageAttachment({ attachment, author, reducedMotion, onOpen }: { attachment: Attachment; author: string; reducedMotion: boolean; onOpen: (source: string, attachment: Attachment) => void }) {
   const [playing, setPlaying] = useState<boolean | null>(null);
@@ -57,6 +64,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const limitMb = 100;
   const {profiles} = usePresence();
   const {user} = useAccount();
+  const userId = user.id;
   const inputId = useId();
   const [messages, setMessages] = useState<TextMessage[]>([]);
   const [caret,setCaret] = useState(0);
@@ -74,6 +82,13 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const [viewer, setViewer] = useState<{source: string; attachment: Attachment} | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [sendingGif, setSendingGif] = useState(false);
+  const [menu, setMenu] = useState<{message: TextMessage; x: number; y: number} | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const press = useRef<{timer: number; x: number; y: number} | null>(null);
+  const held = useRef<{message: TextMessage; x: number; y: number} | null>(null);
+  const [heldId, setHeldId] = useState<number | null>(null);
+  const pressedAt = useRef(0);
+  const tempId = useRef(-1);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const cursor = useRef(0);
   const hydrated = useRef(false);
@@ -105,6 +120,18 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   useEffect(() => () => { sendController.current?.abort(); fileCache.current.forEach(item => item.preview && URL.revokeObjectURL(item.preview)); }, []);
   useEffect(() => { const query = window.matchMedia('(prefers-reduced-motion: reduce)'); const changed = () => setReducedMotion(query.matches); query.addEventListener('change',changed); return () => query.removeEventListener('change',changed); }, []);
   useEffect(() => {
+    const panel = menuRef.current; if (!panel) return;
+    const toggled = (event: Event) => { if ((event as ToggleEvent).newState === 'closed') setMenu(null); };
+    panel.addEventListener('toggle', toggled); return () => panel.removeEventListener('toggle', toggled);
+  }, []);
+  useEffect(() => {
+    const panel = menuRef.current; if (!panel || !menu) return;
+    panel.style.left = Math.max(8, Math.min(menu.x, window.innerWidth - 208)) + 'px';
+    panel.style.top = Math.max(8, Math.min(menu.y, window.innerHeight - 200)) + 'px';
+    if (!panel.matches(':popover-open')) panel.showPopover();
+    if (!window.matchMedia('(pointer:coarse)').matches) panel.querySelector<HTMLButtonElement>('.message-menu-actions button')?.focus({preventScroll:true});
+  }, [menu]);
+  useEffect(() => {
     if (viewer && dialog.current && !dialog.current.open) dialog.current.showModal();
     if (!viewer && dialog.current?.open) dialog.current.close();
   }, [viewer]);
@@ -119,14 +146,36 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
         if (controller.signal.aborted) return;
         if (!hydrated.current) setHasMore(Boolean(data.hasMore)); hydrated.current = true;
         cursor.current = data.cursor;
-        if(data.messages.length || data.deletedIds?.length) setMessages(previous => [...new Map([...previous.filter(message=>!data.deletedIds?.includes(message.id)).map(message=>message.reply&&data.deletedIds?.includes(message.reply.id)?{...message,reply:{id:message.reply.id,deleted:true}}:message),...data.messages].map(message => [message.id,message])).values()].sort((a,b)=>a.id-b.id));
+        if(data.messages.length || data.deletedIds?.length) setMessages(previous => ordered(dedupe([...absorb(previous,data.messages,userId).filter(message=>!data.deletedIds?.includes(message.id)).map(message=>message.reply&&data.deletedIds?.includes(message.reply.id)?{...message,reply:{id:message.reply.id,deleted:true}}:message),...data.messages])));
         setStatus('Histórico salvo');
       } catch { if (!controller.signal.aborted) setStatus('Sem conexão. Tentando reconectar…'); }
       finally { if (!controller.signal.aborted) timer=setTimeout(refresh,2000); }
     }
     void refresh(); return () => {controller.abort();clearTimeout(timer);};
-  }, [channel]);
+  }, [channel, userId]);
   useEffect(() => { if (visible && atBottom.current) bottom.current?.scrollIntoView({block:'nearest'}); }, [messages.length,visible]);
+  // Envio instantâneo: a mensagem aparece na hora e é confirmada quando o servidor responder.
+  async function deliver(temp: TextMessage) {
+    setMessages(previous => previous.map(message => message.clientId === temp.clientId ? {...message, pending:'sending'} : message));
+    try {
+      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text:temp.text,clientId:temp.clientId,attachmentIds:[],replyTo:temp.reply?.id??null}),signal:AbortSignal.timeout(15000)});
+      if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
+      const sent=await response.json() as TextMessage;
+      setMessages(previous => ordered(dedupe([...previous.filter(message => message.clientId !== temp.clientId), sent])));
+    } catch (cause) {
+      setMessages(previous => previous.map(message => message.clientId === temp.clientId ? {...message, pending:'failed'} : message));
+      setError(cause instanceof Error && cause.name==='Error' ? cause.message : 'A conexão falhou. Toque em “Tentar de novo” na mensagem.');
+    }
+  }
+  function openMenu(message: TextMessage, x: number, y: number) { if (!message.pending) setMenu({message, x, y}); }
+  function cancelPress() { if (press.current) { clearTimeout(press.current.timer); press.current = null; } }
+  // Depois de segurar, o menu abre ao soltar o dedo; abrir antes faria o próprio toque fechá-lo.
+  function releasePress() {
+    cancelPress();
+    const target = held.current; if (!target) return;
+    held.current = null; pressedAt.current = now(); setHeldId(null);
+    setTimeout(() => openMenu(target.message, target.x, target.y), 0);
+  }
   function addFiles(incoming: File[]) {
     if (sending) return;
     const accepted: PendingFile[] = []; const errors: string[] = [];
@@ -141,6 +190,11 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   function removeFile(id:string) { const item=files.find(file=>file.id===id);if(item?.preview)URL.revokeObjectURL(item.preview);uploaded.current.delete(id);setFiles(previous=>previous.filter(file=>file.id!==id)); }
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;
+    if(!files.length){
+      const temp=pendingMessage(tempId.current--,user,channel,text,replyTo);
+      setMessages(previous=>[...previous,temp]);setDraft('');setReplyTo(null);setError('');atBottom.current=true;
+      void deliver(temp);return;
+    }
     setSending(true);setError('');const controller=new AbortController();sendController.current=controller;
     const signature=JSON.stringify({channel,text,replyTo:replyTo?.id??null,ids:files.map(item=>item.id)});
     if(pending.current?.signature!==signature)pending.current={signature,id:crypto.randomUUID()};
@@ -159,7 +213,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds,replyTo:replyTo?.id??null}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
-      setMessages(previous=>[...new Map([...previous,sent].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));
+      setMessages(previous=>ordered(dedupe([...previous,sent])));
       files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');setReplyTo(null);pending.current=null;atBottom.current=true;
     }catch(cause){if(!controller.signal.aborted)setError(cause instanceof Error && cause.name!=='TypeError' && cause.name!=='TimeoutError' ? cause.message : 'A conexão falhou. Sua mensagem continua aqui para tentar novamente.');}
     finally{setSending(false);setProgress('');sendController.current=null;}
@@ -175,14 +229,14 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text:'',clientId:crypto.randomUUID(),attachmentIds:[id],replyTo:replyTo?.id??null})});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar o GIF. Tente novamente.'));
       const sent=await response.json() as TextMessage;
-      setMessages(previous=>[...new Map([...previous,sent].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));
+      setMessages(previous=>ordered(dedupe([...previous,sent])));
       setReplyTo(null);atBottom.current=true;setGifOpen(false);
     }catch(cause){setGifOpen(false);setError(cause instanceof Error && cause.name==='Error'?cause.message:'A conexão falhou ao enviar o GIF. Tente novamente.');}
     finally{setSendingGif(false);}
   }
   async function older() {
-    if(!messages.length||loadingOlder)return;setLoadingOlder(true);setError('');const previousHeight=scroller.current?.scrollHeight??0;
-    try{const query=new URLSearchParams({channel,before:String(messages[0].id)});const response=await api('/api/messages?'+query);if(!response.ok)throw Error('Histórico indisponível');const data=await response.json() as {messages:TextMessage[];hasMore:boolean};atBottom.current=false;setMessages(previous=>[...new Map([...data.messages,...previous].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));setHasMore(data.hasMore);requestAnimationFrame(()=>{if(scroller.current)scroller.current.scrollTop+=scroller.current.scrollHeight-previousHeight;});}
+    const first=messages.find(message=>!message.pending);if(!first||loadingOlder)return;setLoadingOlder(true);setError('');const previousHeight=scroller.current?.scrollHeight??0;
+    try{const query=new URLSearchParams({channel,before:String(first.id)});const response=await api('/api/messages?'+query);if(!response.ok)throw Error('Histórico indisponível');const data=await response.json() as {messages:TextMessage[];hasMore:boolean};atBottom.current=false;setMessages(previous=>ordered(dedupe([...data.messages,...previous])));setHasMore(data.hasMore);requestAnimationFrame(()=>{if(scroller.current)scroller.current.scrollTop+=scroller.current.scrollHeight-previousHeight;});}
     catch{setError('Não foi possível carregar mensagens anteriores. Tente novamente.');}finally{setLoadingOlder(false);}
   }
   async function removeMessage(message:TextMessage) {
@@ -195,12 +249,25 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=<MessageOptions message={message} onReply={()=>{setReplyTo(message);textarea.current?.focus();}} onDelete={message.canDelete?()=>void removeMessage(message):undefined} />;return <article id={"message-"+message.id} key={message.id} className={'public-message'+(grouped?' is-continuation':'')}>{grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span><div className="continuation-options">{options}</div></>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{message.text&&<p>{markedText(message.text)}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}</div></article>;})}<div ref={bottom}/>
+      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
+        onPointerDown={event=>{if(event.pointerType!=='touch'||message.pending)return;cancelPress();const {clientX:x,clientY:y}=event;press.current={x,y,timer:window.setTimeout(()=>{press.current=null;pressedAt.current=now();held.current={message,x:x-100,y:y+12};setHeldId(message.id);navigator.vibrate?.(12);},450)};}}
+        onPointerMove={event=>{const start=press.current;if(start&&Math.hypot(event.clientX-start.x,event.clientY-start.y)>10)cancelPress();}}
+        onPointerUp={releasePress} onPointerCancel={releasePress}
+        onContextMenu={event=>{if(held.current||now()-pressedAt.current<1500){event.preventDefault();return;}if((event.target as HTMLElement).closest('a,img,textarea'))return;event.preventDefault();openMenu(message,event.clientX,event.clientY);}}
+        onClickCapture={event=>{if(now()-pressedAt.current<700){event.preventDefault();event.stopPropagation();}}}>
+        {grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span>{options&&<div className="continuation-options">{options}</div>}</>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{message.text&&<p>{markedText(message.text)}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}{message.pending==='failed'&&<div className="message-failed" role="alert">Não enviada.<button type="button" onClick={()=>{setError('');void deliver(message);}}>Tentar de novo</button><button type="button" onClick={()=>setMessages(previous=>previous.filter(item=>item.clientId!==message.clientId))}>Descartar</button></div>}</div></article>;})}<div ref={bottom}/>
     </div>
     <div className="public-compose">{replyTo&&<div className="reply-compose"><span>Respondendo a <strong>{displayName(replyTo.user_id,replyTo.name)}</strong><small>{replyTo.text || 'Arquivo ou imagem'}</small></span><button type="button" className="button subtle" onClick={()=>setReplyTo(null)} aria-label="Cancelar resposta">×</button></div>}{suggestions.length>0&&<div className="mention-suggestions" id={inputId+"-mentions"} role="listbox" aria-label="Pessoas para mencionar">{suggestions.map((person,index)=><button key={person.id} type="button" role="option" aria-selected={index===Math.min(suggestionIndex,suggestions.length-1)} onPointerDown={event=>event.preventDefault()} onClick={()=>insertMention(person)}>{person.avatarUrl?<img className="member-avatar" src={person.avatarUrl} alt=""/>:<span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span>{person.name}</span></button>)}</div>}<p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
-      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea ref={textarea} id={inputId} aria-autocomplete="list" aria-controls={suggestions.length?inputId+"-mentions":undefined} value={draft} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDraft(event.target.value);setCaret(event.target.selectionStart);setDismissedAt(-1);setSuggestionIndex(0);}} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(suggestions.length){if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(current+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length);return;}if(event.key==='Escape'){event.preventDefault();setDismissedAt(caret);return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();insertMention(suggestions[Math.min(suggestionIndex,suggestions.length-1)]);return;}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
+      <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea ref={textarea} id={inputId} aria-autocomplete="list" aria-controls={suggestions.length?inputId+"-mentions":undefined} value={draft} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDraft(event.target.value);setCaret(event.target.selectionStart);setDismissedAt(-1);setSuggestionIndex(0);}} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending&&files.length>0} onPaste={pasted} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(suggestions.length){if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(current+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length);return;}if(event.key==='Escape'){event.preventDefault();setDismissedAt(caret);return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();insertMention(suggestions[Math.min(suggestionIndex,suggestions.length-1)]);return;}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
       <div className="compose-extras"><input ref={fileInput} type="file"  multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label="Anexar arquivo"><ClipIcon/>Anexar arquivo</button><button type="button" className="attach-button gif-button" disabled={sending||sendingGif} onClick={()=>setGifOpen(true)} aria-label="Enviar GIF da biblioteca" aria-haspopup="dialog"><span className="gif-button-badge" aria-hidden="true">GIF</span></button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>
+    {createPortal(<div className="message-options-popover message-menu" ref={menuRef} popover="auto" role="menu" aria-label="Opções da mensagem">{menu&&<>
+      <div className="message-menu-preview" aria-hidden="true"><strong style={nameStyle(menu.message.user_id)}>{displayName(menu.message.user_id,menu.message.name)}</strong><span>{menu.message.text || 'Arquivo ou imagem'}</span></div>
+      <div className="message-menu-actions">
+        <button role="menuitem" onClick={()=>{const message=menu.message;menuRef.current?.hidePopover();setReplyTo(message);textarea.current?.focus();}}>Responder</button>
+        {menu.message.text&&<button role="menuitem" onClick={()=>{const text=menu.message.text;menuRef.current?.hidePopover();void navigator.clipboard?.writeText(text).catch(()=>setError('Não foi possível copiar o texto.'));}}>Copiar texto</button>}
+        {menu.message.canDelete&&<button role="menuitem" className="danger" onClick={()=>{const message=menu.message;menuRef.current?.hidePopover();void removeMessage(message);}}>Excluir mensagem</button>}
+      </div></>}</div>,document.body)}
     {gifOpen&&<GifPicker busy={sendingGif} onPick={gif=>void sendGif(gif)} onClose={()=>{if(!sendingGif)setGifOpen(false);}}/>}
     <dialog className="image-dialog" ref={dialog} onCancel={()=>setViewer(null)} onClose={()=>setViewer(null)} onClick={event=>{if(event.target===event.currentTarget)setViewer(null);}} aria-label="Imagem ampliada">{viewer&&<><button className="button subtle image-dialog-close" onClick={()=>setViewer(null)}>Fechar imagem</button><img src={viewer.source} alt={viewer.attachment.animated?'GIF ampliado':'Imagem ampliada'}/></>}</dialog>
   </section>;

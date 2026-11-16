@@ -897,3 +897,39 @@ input::placeholder { color: #949387; }
 /* Status personalizado. */
 .custom-status { color:#d8d2c4 !important; }
 .profile-status { margin:4px 0 0; color:#c4bcae; font-size:14px; }
+
+/* ==========================================================================
+   Opções da mensagem no estilo Discord: no PC aparecem ao passar o mouse;
+   no celular, segure a mensagem para abrir o menu.
+   ========================================================================== */
+.public-message header .message-options-trigger { margin-left:auto; opacity:0; }
+.public-message:hover .message-options-trigger, .public-message:focus-within .message-options-trigger, .public-message.menu-open .message-options-trigger { opacity:1; }
+.public-message:hover, .public-message.menu-open { background:#1c1d19; }
+.public-message { margin-inline:-8px; padding:2px 8px; }
+.message-menu { width:200px; padding:6px; }
+.message-menu-preview { display:none; }
+.message-menu-actions { display:flex; flex-direction:column; gap:2px; }
+.message-options-popover.message-menu button { color:var(--text, #eee8dc); font-size:14px; }
+.message-options-popover.message-menu button:hover { background:#34352f; }
+.message-options-popover.message-menu button.danger { color:#ffb1a7; }
+.message-options-popover.message-menu button.danger:hover { background:#56302a; }
+.public-message.is-sending .message-body > p { opacity:.5; }
+.public-message.is-failed .message-body > p { color:#ffaea5; }
+.message-failed { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; margin-top:4px; color:#ffaea5; font-size:12px; }
+.message-failed button { min-height:32px; padding:0; border:0; background:transparent; color:#e6c48b; font-size:12px; font-weight:600; text-decoration:underline; text-underline-offset:3px; }
+@media (pointer:coarse) {
+  .public-message .message-options-trigger, .continuation-options { display:none !important; }
+  .public-message { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+  .public-message:hover { background:transparent; }
+  .public-message.menu-open { background:#22231f; }
+  .message-menu { position:fixed; inset:auto 0 0 0 !important; width:100%; max-width:none; margin:0; padding:8px 12px max(14px,env(safe-area-inset-bottom)); border-width:1px 0 0; border-radius:16px 16px 0 0; box-shadow:0 -12px 32px #000a; }
+  .message-menu::backdrop { background:#0008; }
+  .message-menu-preview { display:flex; flex-direction:column; gap:3px; padding:10px 6px 12px; margin-bottom:6px; border-bottom:1px solid #34352f; }
+  .message-menu-preview strong { font-size:13px; }
+  .message-menu-preview span { color:#aaa99d; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .message-options-popover.message-menu button { min-height:50px; padding:12px 8px; font-size:16px; }
+}
+@media (max-width:767px) {
+  .public-message.is-continuation { padding-block:1px; }
+  .public-message:has(+ .public-message.is-continuation) { margin-bottom:0 !important; }
+}

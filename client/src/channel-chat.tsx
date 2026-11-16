@@ -7,7 +7,8 @@ import { useAccount } from './accounts';
 import { mentionQuery, mentionRanges } from './mentions';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
-type TextMessage = { id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
+type Reply = {id:number;name?:string;text?:string;user_id?:string|null;deleted:boolean};
+type TextMessage = { reply?:Reply|null; id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[] };
 type PendingFile = { id: string; file: File; preview: string | null };
 const MB = 1024 * 1024;
 const ACCEPT = ['image/png','image/jpeg','image/gif','image/webp'];
@@ -17,11 +18,12 @@ function MessageAvatar({message}:{message:TextMessage}) {
   const {profiles,showProfile}=usePresence();
   const profile=profiles.find(person=>person.id===message.user_id);
   const [failedUrl,setFailedUrl]=useState<string | null>(null);
-  const initials=message.name.slice(0,2).toLocaleUpperCase('pt-BR');
+  const name=profile?.name || message.name;
+  const initials=name.slice(0,2).toLocaleUpperCase('pt-BR');
   if (!profile) return <span className="member-avatar" aria-hidden="true">{initials}</span>;
-  return <button className="member-avatar message-avatar" onClick={()=>showProfile(profile.id)} aria-label={'Ver perfil de '+message.name} title={'Ver perfil de '+message.name}>{profile.avatarUrl && failedUrl!==profile.avatarUrl ? <img src={profile.avatarUrl} alt="" onError={()=>setFailedUrl(profile.avatarUrl)} /> : initials}</button>;
+  return <button className="member-avatar message-avatar" onClick={()=>showProfile(profile.id)} aria-label={'Ver perfil de '+name} title={'Ver perfil de '+name}>{profile.avatarUrl && failedUrl!==profile.avatarUrl ? <img src={profile.avatarUrl} alt="" onError={()=>setFailedUrl(profile.avatarUrl)} /> : initials}</button>;
 }
-function MessageOptions({message, onDelete}:{message:TextMessage; onDelete:()=>void}) {
+function MessageOptions({message, onReply, onDelete}:{message:TextMessage; onReply:()=>void; onDelete?:()=>void}) {
   const menu=useRef<HTMLDivElement>(null);
   function toggle(event:React.MouseEvent<HTMLButtonElement>) {
     const panel=menu.current;
@@ -29,10 +31,10 @@ function MessageOptions({message, onDelete}:{message:TextMessage; onDelete:()=>v
     if(panel.matches(':popover-open')) {panel.hidePopover();return;}
     const rect=event.currentTarget.getBoundingClientRect();
     panel.style.left=Math.max(8,Math.min(rect.right-180,window.innerWidth-188))+'px';
-    panel.style.top=Math.max(8,Math.min(rect.bottom+4,window.innerHeight-60))+'px';
+    panel.style.top=Math.max(8,Math.min(rect.bottom+4,window.innerHeight-110))+'px';
     panel.showPopover();
   }
-  return <><button className="message-options-trigger" onClick={toggle} aria-label={'Mais opções para mensagem de '+message.name} title="Mais opções" aria-haspopup="dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>{createPortal(<div className="message-options-popover" ref={menu} popover="auto" role="dialog" aria-label="Opções da mensagem"><button onClick={()=>{menu.current?.hidePopover();onDelete();}}>Excluir mensagem</button></div>,document.body)}</>;
+  return <><button className="message-options-trigger" onClick={toggle} aria-label={'Mais opções para mensagem de '+message.name} title="Mais opções" aria-haspopup="dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>{createPortal(<div className="message-options-popover" ref={menu} popover="auto" role="dialog" aria-label="Opções da mensagem"><button onClick={()=>{menu.current?.hidePopover();onReply();}}>Responder</button>{onDelete&&<button onClick={()=>{menu.current?.hidePopover();onDelete();}}>Excluir mensagem</button>}</div>,document.body)}</>;
 }
 function ImageAttachment({ attachment, author, reducedMotion, onOpen }: { attachment: Attachment; author: string; reducedMotion: boolean; onOpen: (source: string, attachment: Attachment) => void }) {
   const [playing, setPlaying] = useState<boolean | null>(null);
@@ -59,6 +61,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const [dismissedAt,setDismissedAt] = useState(-1);
   const [draft, setDraft] = useState(() => { try { return sessionStorage.getItem('pg-draft-'+channel) || ''; } catch { return ''; } });
   const [files, setFiles] = useState<PendingFile[]>([]);
+  const [replyTo,setReplyTo] = useState<TextMessage|null>(null);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
@@ -86,6 +89,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     const next=query.start+person.name.length+2;setDraft(value);setCaret(next);setDismissedAt(next);setSuggestionIndex(0);
     requestAnimationFrame(()=>{textarea.current?.focus();textarea.current?.setSelectionRange(next,next);});
   }
+  function displayName(id:string|null|undefined,fallback:string) {return profiles.find(person=>person.id===id)?.name || fallback;}
   function markedText(value:string) {
     const ranges=mentionRanges(value,profiles.map(person=>person.name));let position=0;
     return <>{ranges.map((range,index)=>{const before=value.slice(position,range.start);position=range.end;return <span key={index}>{before}<mark className={'chat-mention '+(range.name.toLocaleLowerCase('pt-BR')===user.name.toLocaleLowerCase('pt-BR')?'is-mine':'')}>{value.slice(range.start,range.end)}</mark></span>;})}{value.slice(position)}</>;
@@ -109,7 +113,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
         if (controller.signal.aborted) return;
         if (!hydrated.current) setHasMore(Boolean(data.hasMore)); hydrated.current = true;
         cursor.current = data.cursor;
-        if(data.messages.length || data.deletedIds?.length) setMessages(previous => [...new Map([...previous.filter(message=>!data.deletedIds?.includes(message.id)),...data.messages].map(message => [message.id,message])).values()].sort((a,b)=>a.id-b.id));
+        if(data.messages.length || data.deletedIds?.length) setMessages(previous => [...new Map([...previous.filter(message=>!data.deletedIds?.includes(message.id)).map(message=>message.reply&&data.deletedIds?.includes(message.reply.id)?{...message,reply:{id:message.reply.id,deleted:true}}:message),...data.messages].map(message => [message.id,message])).values()].sort((a,b)=>a.id-b.id));
         setStatus('Histórico salvo');
       } catch { if (!controller.signal.aborted) setStatus('Sem conexão. Tentando reconectar…'); }
       finally { if (!controller.signal.aborted) timer=setTimeout(refresh,2000); }
@@ -132,7 +136,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;
     setSending(true);setError('');const controller=new AbortController();sendController.current=controller;
-    const signature=JSON.stringify({channel,text,ids:files.map(item=>item.id)});
+    const signature=JSON.stringify({channel,text,replyTo:replyTo?.id??null,ids:files.map(item=>item.id)});
     if(pending.current?.signature!==signature)pending.current={signature,id:crypto.randomUUID()};
     try{
       const attachmentIds:string[]=[];
@@ -146,11 +150,11 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
         attachmentIds.push(item.id);
       }
       setProgress('Enviando mensagem…');
-      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds,replyTo:replyTo?.id??null}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
       setMessages(previous=>[...new Map([...previous,sent].map(message=>[message.id,message])).values()].sort((a,b)=>a.id-b.id));
-      files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');pending.current=null;atBottom.current=true;
+      files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');setReplyTo(null);pending.current=null;atBottom.current=true;
     }catch(cause){if(!controller.signal.aborted)setError(cause instanceof Error && cause.name!=='TypeError' && cause.name!=='TimeoutError' ? cause.message : 'A conexão falhou. Sua mensagem continua aqui para tentar novamente.');}
     finally{setSending(false);setProgress('');sendController.current=null;}
   }
@@ -161,7 +165,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   }
   async function removeMessage(message:TextMessage) {
     if(!window.confirm('Excluir esta mensagem e seus anexos? Ela será removida para todos.'))return;
-    try{const response=await api('/api/messages/'+message.id,{method:'DELETE'});if(!response.ok)throw Error(await requestError(response,'Não foi possível excluir.'));setMessages(previous=>previous.filter(item=>item.id!==message.id));}
+    try{const response=await api('/api/messages/'+message.id,{method:'DELETE'});if(!response.ok)throw Error(await requestError(response,'Não foi possível excluir.'));setMessages(previous=>previous.filter(item=>item.id!==message.id).map(item=>item.reply?.id===message.id?{...item,reply:{id:message.id,deleted:true}}:item));}
     catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível excluir.');}
   }
   return <section className={'public-chat channel-chat '+(compact?'compact-chat':'')} hidden={!visible} aria-label={compact?'Chat da call '+title:'Chat '+title}>
@@ -169,9 +173,9 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map(message=><article key={message.id} className="public-message"><MessageAvatar message={message}/><div><header><strong>{message.name}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{message.canDelete&&<MessageOptions message={message} onDelete={()=>void removeMessage(message)} />}</header>{message.text&&<p>{markedText(message.text)}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}</div></article>)}<div ref={bottom}/>
+      {messages.map(message=><article id={"message-"+message.id} key={message.id} className="public-message"><MessageAvatar message={message}/><div><header><strong>{displayName(message.user_id,message.name)}</strong><time dateTime={new Date(message.timestamp).toISOString()}>{new Date(message.timestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time><MessageOptions message={message} onReply={()=>{setReplyTo(message);textarea.current?.focus();}} onDelete={message.canDelete?()=>void removeMessage(message):undefined} /></header>{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{message.text&&<p>{markedText(message.text)}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}</div></article>)}<div ref={bottom}/>
     </div>
-    <div className="public-compose">{suggestions.length>0&&<div className="mention-suggestions" id={inputId+"-mentions"} role="listbox" aria-label="Pessoas para mencionar">{suggestions.map((person,index)=><button key={person.id} type="button" role="option" aria-selected={index===Math.min(suggestionIndex,suggestions.length-1)} onPointerDown={event=>event.preventDefault()} onClick={()=>insertMention(person)}>{person.avatarUrl?<img className="member-avatar" src={person.avatarUrl} alt=""/>:<span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span>{person.name}</span></button>)}</div>}<p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
+    <div className="public-compose">{replyTo&&<div className="reply-compose"><span>Respondendo a <strong>{displayName(replyTo.user_id,replyTo.name)}</strong><small>{replyTo.text || 'Arquivo ou imagem'}</small></span><button type="button" className="button subtle" onClick={()=>setReplyTo(null)} aria-label="Cancelar resposta">×</button></div>}{suggestions.length>0&&<div className="mention-suggestions" id={inputId+"-mentions"} role="listbox" aria-label="Pessoas para mencionar">{suggestions.map((person,index)=><button key={person.id} type="button" role="option" aria-selected={index===Math.min(suggestionIndex,suggestions.length-1)} onPointerDown={event=>event.preventDefault()} onClick={()=>insertMention(person)}>{person.avatarUrl?<img className="member-avatar" src={person.avatarUrl} alt=""/>:<span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span>{person.name}</span></button>)}</div>}<p className="chat-sync" role="status">{sending?progress:status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
       <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea ref={textarea} id={inputId} aria-autocomplete="list" aria-controls={suggestions.length?inputId+"-mentions":undefined} value={draft} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDraft(event.target.value);setCaret(event.target.selectionStart);setDismissedAt(-1);setSuggestionIndex(0);}} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending} onPaste={pasted} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(suggestions.length){if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(current+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length);return;}if(event.key==='Escape'){event.preventDefault();setDismissedAt(caret);return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();insertMention(suggestions[Math.min(suggestionIndex,suggestions.length-1)]);return;}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
       <div className="compose-extras"><input ref={fileInput} type="file"  multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label="Anexar arquivo"><ClipIcon/>Anexar arquivo</button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>

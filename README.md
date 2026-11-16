@@ -4,7 +4,7 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 
 ## Recursos
 
-- Canal de texto **#geral**, independente de chamadas, com historico salvo em SQLite.
+- Canal de texto **#geral**, independente de chamadas, com historico salvo no banco configurado.
 - Conversa lateral propria para cada canal de voz, separada do #geral.
 - Imagens PNG/JPG/WebP e GIFs animados, com pre-visualizacao, ampliacao e pausa de animacao.
 - Dois canais de voz separados: **Geral** e **Jogatina**.
@@ -20,7 +20,8 @@ Chat criado para reunir amigos em uma comunidade privada, com identidade visual 
 ## Estrutura
 
 - `client/`: React, TypeScript, Vite e componentes LiveKit.
-- `server/`: API Fastify, emissao de acessos LiveKit e historico em SQLite.
+- `server/`: API Fastify, emissao de acessos LiveKit e historico no PostgreSQL do Supabase ou SQLite de desenvolvimento.
+- `deploy/`: preparacao para VPS Linux, ainda sem publicacao automatica; veja `deploy/README.md`.
 - `scripts/abrir-chat.cjs`: iniciador manual para Windows.
 - `COMO-ABRIR.md`: guia de uso no PC que hospeda o projeto.
 
@@ -84,6 +85,6 @@ Para verificar segredos, instale o [Gitleaks oficial](https://github.com/gitleak
 
 ## Dados locais
 
-O historico fica em `server/data/chat.sqlite` no PC hospedeiro. Credenciais, banco, registros, dependencias e builds sao ignorados pelo Git. Cada pessoa entra com sua propria conta. A conta proprietaria e ativada pelo link de configuracao gerado em `server/data/owner-setup.json` (aberto automaticamente pelo iniciador); os demais entram por convites gerados no painel de administracao. A rede Tailscale continua sendo a primeira barreira de acesso.
+Quando `PG_CHAT_DATABASE=postgres`, o historico e os anexos ficam no PostgreSQL do Supabase; `server/data/chat.sqlite` e apenas a alternativa local e pode estar desatualizado. Credenciais, bancos, registros, dependencias e builds sao ignorados pelo Git. Cada pessoa entra com sua propria conta. A conta proprietaria e ativada pelo link de configuracao gerado em `server/data/owner-setup.json` (aberto automaticamente pelo iniciador); os demais entram por convites gerados no painel de administracao. A rede Tailscale continua sendo a primeira barreira de acesso no modo privado.
 
 As pastas duplicadas de tentativas antigas de criacao do projeto continuam preservadas no PC e ficam fora do repositorio.

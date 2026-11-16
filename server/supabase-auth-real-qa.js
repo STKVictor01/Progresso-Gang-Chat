@@ -1,0 +1,62 @@
+// Somente para o GoTrue descartável escutando na porta local de teste.
+import assert from 'node:assert/strict';
+import {createHmac,randomUUID,randomBytes} from 'node:crypto';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createClient} from '@supabase/supabase-js';
+import {createApp} from './app.js';
+import {createSupabaseAuth} from './supabase-auth.js';
+
+const url='http://127.0.0.1:29999',secret='senha-ficticia-exclusiva-de-teste-nao-usar-em-producao';
+const jwt=role=>{const b=x=>Buffer.from(JSON.stringify(x)).toString('base64url');const data=b({alg:'HS256',typ:'JWT'})+'.'+b({role,aud:'authenticated',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600});return data+'.'+createHmac('sha256',secret).update(data).digest('base64url');};
+const factory=(base,key,options)=>createClient(base,key,{...options,global:{fetch:(input,init)=>fetch(String(input).replace('/auth/v1',''),init)}});
+const provider=createSupabaseAuth({url,publishableKey:jwt('anon'),secretKey:jwt('service_role'),redirectTo:'http://localhost:5173',clientFactory:factory,settingsFetch:(input,init)=>fetch(String(input).replace('/auth/v1',''),init)});
+for(const method of ['getUser','importUser','signIn','verify','changePassword']){const original=provider[method];provider[method]=async(...args)=>{try{return await original(...args);}catch(error){console.error('Teste Auth:',method,error.status,error.message);throw error;}};}
+const admin=factory(url,jwt('service_role'),{auth:{persistSession:false,autoRefreshToken:false}});
+const dir=mkdtempSync(join(tmpdir(),'pg-auth-real-')),dbPath=join(dir,'qa.sqlite');
+const origin='http://localhost:5173',password=randomBytes(24).toString('base64url'),email='dono-'+randomUUID()+'@example.com';
+const opts={dbPath,apiKey:'testkey',apiSecret:'segredo-ficticio-apenas-para-teste',serverUrl:'ws://localhost:7880',logger:false,secureCookies:false,allowedOrigins:[origin]};
+const req=(app,path,payload,headers={})=>app.inject({method:'POST',url:path,payload,headers:{origin,...headers}});
+let app;
+try{
+  const setup=randomUUID()+randomUUID();app=await createApp({...opts,ownerSetupToken:setup});
+  const owner=await req(app,'/auth/setup',{token:setup,password});assert.equal(owner.statusCode,200);
+  const id=owner.json().user.id;await app.close();app=undefined;
+  app=await createApp({...opts,authProvider:provider});
+  const link=await req(app,'/auth/link',{username:'Vitão',password,email});assert.equal(link.statusCode,200,link.body);assert.equal(link.json().confirmationRequired,true);
+  const pending=await req(app,'/auth/login',{email,password});assert.equal(pending.statusCode,401);
+  const linkInbox=await (await fetch('http://127.0.0.1:28025/api/v1/messages')).json();
+  const linkMail=linkInbox.messages.find(message=>message.To.some(recipient=>recipient.Address===email));assert.ok(linkMail);
+  const linkBody=await (await fetch('http://127.0.0.1:28025/api/v1/message/'+linkMail.ID)).json();
+  const verification=linkBody.HTML.match(/href="([^"]+)"/)?.[1]?.replaceAll('&amp;','&');assert.ok(verification);
+  assert.equal((await fetch(verification,{redirect:'manual'})).status,303);
+  const login=await req(app,'/auth/login',{email,password});assert.equal(login.statusCode,200,login.body);assert.equal(login.json().user.id,id);assert.equal(login.json().user.owner,true);
+  const cookie=login.cookies.map(item=>`${item.name}=${item.value}`).join('; ');
+  assert.equal((await app.inject({url:'/channels',headers:{cookie}})).statusCode,200);
+  const invite=await req(app,'/admin/invites',{}, {cookie,'x-csrf-token':login.json().csrf});assert.equal(invite.statusCode,200);
+  const inviteEmail='convidado-'+randomUUID()+'@example.com',invitePassword=randomBytes(24).toString('base64url');
+  const signup={token:invite.json().token,username:'Convidado',email:inviteEmail,password:invitePassword,phase:'start'};
+  const started=await req(app,'/auth/register',signup);assert.equal(started.statusCode,200,started.body);
+  const signupInbox=await (await fetch('http://127.0.0.1:28025/api/v1/messages')).json();
+  const signupMail=signupInbox.messages.find(message=>message.To.some(recipient=>recipient.Address===inviteEmail));assert.ok(signupMail);
+  const signupBody=await (await fetch('http://127.0.0.1:28025/api/v1/message/'+signupMail.ID)).json();
+  const confirmation=signupBody.HTML.match(/href="([^"]+)"/)?.[1]?.replaceAll('&amp;','&');assert.ok(confirmation);
+  const confirmed=await fetch(confirmation,{redirect:'manual'});assert.equal(confirmed.status,303);
+  const member=await req(app,'/auth/register',{...signup,phase:'finish'});assert.equal(member.statusCode,201,member.body);assert.equal(member.json().user.role,'member');
+  const withoutAccess=login.cookies.filter(item=>item.name!=='pg_access').map(item=>`${item.name}=${item.value}`).join('; ');
+  const refresh=await app.inject({url:'/channels',headers:{cookie:withoutAccess}});assert.equal(refresh.statusCode,200,refresh.body);assert.ok(refresh.cookies.some(item=>item.name==='pg_refresh'));
+  const newPassword=randomBytes(24).toString('base64url');
+  const changed=await req(app,'/auth/password',{currentPassword:password,password:newPassword},{cookie,'x-csrf-token':login.json().csrf});assert.equal(changed.statusCode,200,changed.body);
+  assert.equal((await req(app,'/auth/login',{email,password})).statusCode,401);
+  const requested=await req(app,'/auth/recovery-request',{email});assert.equal(requested.statusCode,200,requested.body);
+  const inbox=await (await fetch('http://127.0.0.1:28025/api/v1/messages')).json();
+  const received=inbox.messages.find(message=>message.To.some(recipient=>recipient.Address===email));assert.ok(received,'E-mail fictício não recebido no Mailpit.');
+  const mail=await (await fetch('http://127.0.0.1:28025/api/v1/message/'+received.ID)).json();
+  const token=mail.HTML.match(/#recovery=([a-zA-Z0-9_]+)/)?.[1];assert.ok(token,'Modelo de recuperação não gerou o link esperado.');
+  const finalPassword=randomBytes(24).toString('base64url');
+  const completed=await req(app,'/auth/recovery-finish',{token,password:finalPassword});assert.equal(completed.statusCode,200,completed.body);
+  assert.equal((await req(app,'/auth/recovery-finish',{token,password:finalPassword})).statusCode,400);
+  assert.equal((await req(app,'/auth/login',{email,password:finalPassword})).statusCode,200);
+  console.log('SDK e API reais: vínculo Argon2, login, renovação e recuperação de senha passaram.');
+}finally{if(app)await app.close();rmSync(dir,{recursive:true,force:true});}

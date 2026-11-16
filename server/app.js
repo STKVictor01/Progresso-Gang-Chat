@@ -13,7 +13,7 @@ import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 17;
+export const HEALTH_VERSION = 21;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -33,9 +33,13 @@ function uploadName(value) {
 function dispositionName(name) {
   return encodeURIComponent(name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
 }
-export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], onOwnerReady, roomService = new RoomServiceClient(serverUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
+export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
+  if(requireExistingOwner) {
+    try {if(db.kind!=='postgres' || !(await db.prepare('SELECT id FROM users WHERE is_owner=1').get()))throw Error('Produção exige o banco existente com a conta proprietária.');}
+    catch(error){await db.close();throw error;}
+  }
   if (db.kind==='sqlite') {
   (await db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS messages (
@@ -61,31 +65,36 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   const mediaFields = 'a.id,a.mime,a.width,a.height,a.size,a.animated,a.filename';
   const messageMedia = db.prepare(`SELECT ${mediaFields} FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=? ORDER BY ma.position`);
   const serializeMedia = media => ({ ...media, animated: Boolean(media.animated), url: '/api/media/'+media.id, posterUrl: media.animated ? '/api/media/'+media.id+'?still=1' : undefined });
-  const serializeMessage = async (message,user) => ({ ...message, canDelete: user.role==='admin'||message.user_id===user.id, attachments: (await messageMedia.all(message.id)).map(serializeMedia) });
+  const serializeMessage = async (message,user) => (await serializeMessages([message],user))[0];
   async function serializeMessages(messages,user) {
     if (!messages.length) return [];
     const ids=messages.map(message=>message.id), placeholders=ids.map(()=>'?').join(',');
     const media=await db.prepare(`SELECT ma.message_id,${mediaFields} FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id IN (${placeholders}) ORDER BY ma.message_id,ma.position`).all(...ids);
     const grouped=new Map();
     for(const item of media){const {message_id,...data}=item;if(!grouped.has(message_id))grouped.set(message_id,[]);grouped.get(message_id).push(serializeMedia(data));}
-    return messages.map(message=>({...message,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]}));
+    const replyIds=[...new Set(messages.map(message=>message.reply_to_id).filter(id=>id!=null))];
+    const replies=replyIds.length?await db.prepare(`SELECT id,name,text,user_id,deleted_at FROM messages WHERE id IN (${replyIds.map(()=>'?').join(',')})`).all(...replyIds):[];
+    const byId=new Map(replies.map(reply=>[reply.id,reply]));
+    return messages.map(message=>{const reply=byId.get(message.reply_to_id);return {...message,reply:reply?(reply.deleted_at?{id:reply.id,deleted:true}:{id:reply.id,name:reply.name,text:reply.text,user_id:reply.user_id,deleted:false}):null,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]};});
   }
   const cleanAbandoned = async () => (await db.prepare('DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)').run(Date.now()-86400000));
   await cleanAbandoned();
-  const app = Fastify({ logger, bodyLimit: 16384 });
+  const app = Fastify({ logger, bodyLimit: 16384, trustProxy });
   const activity=createActivityLog(activityLogPath);
   app.addHook('onReady',async()=>activity.record('server-start'));
   app.addHook('onResponse',async(request,reply)=>{if(reply.statusCode>=500)activity.record('server-error',{route:request.routeOptions.url,status:reply.statusCode});});
   app.addHook('onClose',async()=>activity.record('server-stop'));
   app.addContentTypeParser('application/octet-stream', { parseAs:'buffer', bodyLimit:MAX_GENERAL_UPLOAD_BYTES }, (_request,body,done)=>done(null,body));
   app.addHook('onClose', async () => db.close());
-  await app.register(cors, { origin: 'http://localhost:5173' });
-  const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady,recordEvent:activity.record});
-  installMusic(app, {accounts, roomService, apiKey, apiSecret, serverUrl});
+  await app.register(cors, { origin: allowedOrigins });
+  const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady,recordEvent:activity.record,authProvider});
+  installMusic(app, {accounts, roomService, apiKey, apiSecret, serverUrl:internalServerUrl, maxConcurrentRooms:musicMaxRooms});
   if (db.kind==='sqlite') {
   const columns = (await db.prepare('PRAGMA table_info(messages)').all());
   if (!columns.some(c=>c.name==='user_id')) (await db.exec('ALTER TABLE messages ADD COLUMN user_id TEXT REFERENCES users(id)'));
   if (!columns.some(c=>c.name==='deleted_at')) (await db.exec('ALTER TABLE messages ADD COLUMN deleted_at INTEGER'));
+  if (!columns.some(c=>c.name==='reply_to_id')) (await db.exec('ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id)'));
+  await db.exec('CREATE INDEX IF NOT EXISTS messages_reply_to_id_idx ON messages(reply_to_id)');
   if (!(await db.prepare('PRAGMA table_info(attachments)').all()).some(c=>c.name==='owner_id')) (await db.exec('ALTER TABLE attachments ADD COLUMN owner_id TEXT REFERENCES users(id)'));
   if (!(await db.prepare('PRAGMA table_info(attachments)').all()).some(c=>c.name==='filename')) (await db.exec("ALTER TABLE attachments ADD COLUMN filename TEXT NOT NULL DEFAULT ''"));
   (await db.exec(`CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER NOT NULL,channel TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(message_id,kind));
@@ -94,6 +103,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   }
   // The launcher compares this version to restart a backend left running from before an update.
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], database:db.kind, pid:process.pid }));
+  app.get('/ready', async (_request,reply) => {try {await db.prepare('SELECT 1 AS ok').get();return {ready:true};} catch {return reply.code(503).send({ready:false});}});
   app.get('/admin/logs',async()=>({events:activity.list()}));
   app.get('/soundboard', async (request,reply) => {
     const {channel}=request.query;
@@ -128,7 +138,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if(sound.owner_id!==request.user.id&&request.user.role!=='admin')return reply.code(403).send({error:'Você só pode excluir os próprios sons.'});
     (await db.prepare('DELETE FROM soundboard WHERE id=?').run(request.params.id)); activity.record('sound-delete',{actor:request.user.username});return {ok:true};
   });
-  app.post('/token', async (request,reply) => {
+  app.post('/token', {config:{rateLimit:{max:30,timeWindow:'1 minute'}}}, async (request,reply) => {
     const {room='geral'}=request.body??{};
     if(typeof room!=='string'||!(await accounts.voiceExists(room))) return reply.code(400).send({error:'Canal de voz inválido.'});
     const token=new AccessToken(apiKey,apiSecret,{identity:request.user.id+':'+randomUUID(),name:request.user.username,metadata:JSON.stringify({userId:request.user.id}),ttl:'10m'});
@@ -136,8 +146,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     return {token:await token.toJwt(),serverUrl,room};
   });
   let generalUploadBusy=false;
-  app.post('/uploads', {bodyLimit:MAX_GENERAL_UPLOAD_BYTES,onRequest:async(request,reply)=>{
-    if(!request.headers['x-upload-channel'])return;
+  app.post('/uploads', {bodyLimit:MAX_GENERAL_UPLOAD_BYTES,config:{rateLimit:{max:30,timeWindow:'1 minute'}},onRequest:async(request,reply)=>{
     if(generalUploadBusy)return reply.code(429).send({error:'Aguarde o envio em andamento e tente novamente.'});
     generalUploadBusy=true;reply.raw.once('close',()=>{generalUploadBusy=false;});
   }}, async (request,reply) => {
@@ -184,9 +193,15 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     });
     return result.error?reply.code(result.status).send({error:result.error}):reply.code(result.status).send(serializeMedia(result.media));
   });
+  let largeDownloads=0;
   app.get('/media/:id', async (request,reply) => {
     const {id}=request.params;
     if(!UUID.test(id)) return reply.code(404).send({error:'Imagem não encontrada.'});
+    const size=(await db.prepare('SELECT size FROM attachments WHERE id=?').get(id))?.size;
+    if(size>MAX_UPLOAD_BYTES){
+      if(largeDownloads>=2)return reply.code(429).send({error:'Muitos downloads em andamento. Tente novamente em instantes.'});
+      largeDownloads++;reply.raw.once('close',()=>{largeDownloads--;});
+    }
     const media=(await db.prepare('SELECT a.mime,a.data,a.animated,a.filename FROM attachments a WHERE a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id))').get(id));
     if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
     let body=Buffer.from(media.data);
@@ -246,29 +261,30 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       if(!/^\d+$/.test(since)||!Number.isSafeInteger(Number(since)))return reply.code(400).send({error:'Página inválida.'});
       const events=(await db.prepare('SELECT * FROM message_events WHERE channel=? AND seq>? ORDER BY seq LIMIT 200').all(channel,Number(since)));
       const ids=events.filter(e=>e.kind==='created').map(e=>e.message_id);
-      const rows=ids.length?await db.prepare(`SELECT id,name,text,timestamp,channel,user_id FROM messages WHERE id IN (${ids.map(()=>'?').join(',')}) AND deleted_at IS NULL`).all(...ids):[];
+      const rows=ids.length?await db.prepare(`SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE id IN (${ids.map(()=>'?').join(',')}) AND deleted_at IS NULL`).all(...ids):[];
       const lookup=new Map(rows.map(row=>[row.id,row]));
       return {messages:await serializeMessages(ids.map(id=>lookup.get(id)).filter(Boolean),request.user),deletedIds:events.filter(e=>e.kind==='deleted').map(e=>e.message_id),cursor:events.length?events.at(-1).seq:eventCursor};
     }
     if((after!==undefined&&!/^\d+$/.test(after))||(before!==undefined&&!/^\d+$/.test(before))||(after!==undefined&&before!==undefined)) return reply.code(400).send({error:'Página de mensagens inválida.'});
     const cursor=Number(after??before??0);
     if(!Number.isSafeInteger(cursor))return reply.code(400).send({error:'Página de mensagens inválida.'});
-    if(after!==undefined) return {messages:await serializeMessages(await db.prepare('SELECT id,name,text,timestamp,channel,user_id FROM messages WHERE channel=? AND id>? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').all(channel,cursor),request.user),cursor:eventCursor};
-    const rows=before===undefined?(await db.prepare('SELECT id,name,text,timestamp,channel,user_id FROM messages WHERE channel=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 101').all(channel)):(await db.prepare('SELECT id,name,text,timestamp,channel,user_id FROM messages WHERE channel=? AND id<? AND deleted_at IS NULL ORDER BY id DESC LIMIT 101').all(channel,cursor));
+    if(after!==undefined) return {messages:await serializeMessages(await db.prepare('SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE channel=? AND id>? AND deleted_at IS NULL ORDER BY id ASC LIMIT 100').all(channel,cursor),request.user),cursor:eventCursor};
+    const rows=before===undefined?(await db.prepare('SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE channel=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 101').all(channel)):(await db.prepare('SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE channel=? AND id<? AND deleted_at IS NULL ORDER BY id DESC LIMIT 101').all(channel,cursor));
     return {messages:await serializeMessages(rows.slice(0,100).reverse(),request.user),hasMore:rows.length>100,cursor:eventCursor};
   });
   app.post('/messages', async (request,reply) => {
-    const {text='',clientId,channel='general',attachmentIds=[]}=request.body??{};
+    const {text='',clientId,channel='general',attachmentIds=[],replyTo=null}=request.body??{};
     const name=request.user.username;
-    if(typeof text!=='string'||text.trim().length>2000||typeof clientId!=='string'||!UUID.test(clientId)||!(await accounts.conversationExists(channel))||!Array.isArray(attachmentIds)||attachmentIds.length>4||new Set(attachmentIds).size!==attachmentIds.length||attachmentIds.some(id=>typeof id!=='string'||!UUID.test(id))||(!text.trim()&&!attachmentIds.length))return reply.code(400).send({error:'Escreva uma mensagem ou anexe até quatro imagens/GIFs.'});
-    const findPrevious=()=>db.prepare('SELECT id,name,text,timestamp,channel,user_id,deleted_at FROM messages WHERE client_id=?').get(clientId);
+    if((replyTo!==null&&(!Number.isSafeInteger(replyTo)||replyTo<=0))||typeof text!=='string'||text.trim().length>2000||typeof clientId!=='string'||!UUID.test(clientId)||!(await accounts.conversationExists(channel))||!Array.isArray(attachmentIds)||attachmentIds.length>4||new Set(attachmentIds).size!==attachmentIds.length||attachmentIds.some(id=>typeof id!=='string'||!UUID.test(id))||(!text.trim()&&!attachmentIds.length))return reply.code(400).send({error:'Escreva uma mensagem ou anexe até quatro imagens/GIFs.'});
+    const findPrevious=()=>db.prepare('SELECT id,name,text,timestamp,channel,user_id,deleted_at,reply_to_id FROM messages WHERE client_id=?').get(clientId);
     async function retry(previous) {
       const previousIds=(await messageMedia.all(previous.id)).map(media=>media.id);
-      if(previous.user_id!==request.user.id||previous.deleted_at||previous.text!==text.trim()||previous.channel!==channel||JSON.stringify(previousIds)!==JSON.stringify(attachmentIds))return reply.code(409).send({error:'Identificador de mensagem já utilizado.'});
+      if(previous.user_id!==request.user.id||previous.deleted_at||previous.text!==text.trim()||previous.channel!==channel||(previous.reply_to_id??null)!==replyTo||JSON.stringify(previousIds)!==JSON.stringify(attachmentIds))return reply.code(409).send({error:'Identificador de mensagem já utilizado.'});
       return serializeMessage(previous,request.user);
     }
     const previous=await findPrevious();
     if(previous)return retry(previous);
+    if(replyTo!==null && !(await db.prepare('SELECT id FROM messages WHERE id=? AND channel=? AND deleted_at IS NULL').get(replyTo,channel))) return reply.code(400).send({error:'A mensagem respondida não está disponível neste canal.'});
     for(const id of attachmentIds){
       const attachment=await db.prepare('SELECT id,size,mime FROM attachments WHERE id=? AND owner_id=?').get(id,request.user.id);
       if(!attachment)return reply.code(400).send({error:'Um dos anexos não foi enviado por você. Tente novamente.'});
@@ -277,7 +293,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     }
     const timestamp=Date.now();let messageId;
     try { await db.transaction(async()=>{
-      const result=(await db.prepare('INSERT INTO messages(client_id,name,text,timestamp,channel,user_id) VALUES(?,?,?,?,?,?)').run(clientId,name,text.trim(),timestamp,channel,request.user.id));messageId=Number(result.lastInsertRowid);
+      const result=(await db.prepare('INSERT INTO messages(client_id,name,text,timestamp,channel,user_id,reply_to_id) VALUES(?,?,?,?,?,?,?)').run(clientId,name,text.trim(),timestamp,channel,request.user.id,replyTo));messageId=Number(result.lastInsertRowid);
       (await db.prepare("INSERT INTO message_events(message_id,channel,kind) VALUES(?,?,'created')").run(messageId,channel));
       const attach=db.prepare('INSERT INTO message_attachments(message_id,attachment_id,position) VALUES(?,?,?)');
       for (const [index,id] of attachmentIds.entries()) await attach.run(messageId,id,index);
@@ -288,7 +304,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       throw error;
     }
     activity.record('message-send',{actor:request.user.username,channel});
-    return reply.code(201).send(await serializeMessage({id:messageId,name,text:text.trim(),timestamp,channel,user_id:request.user.id},request.user));
+    return reply.code(201).send(await serializeMessage({id:messageId,name,text:text.trim(),timestamp,channel,user_id:request.user.id,reply_to_id:replyTo},request.user));
   });
   app.delete('/messages/:id',async(request,reply)=>{
     const id=Number(request.params.id);

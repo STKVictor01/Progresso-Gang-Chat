@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { AccessToken } from 'livekit-server-sdk';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const python = join(root, '.tools', 'music-venv', 'Scripts', 'python.exe');
+const python = process.env.PG_CHAT_PYTHON || (process.platform==='win32' ? join(root, '.tools', 'music-venv', 'Scripts', 'python.exe') : '/usr/bin/python3');
 const worker = join(root, 'server', 'music_worker.py');
 function videoId(value) {
   if (typeof value !== 'string' || value.length > 1000) return null;
@@ -31,7 +31,10 @@ export function parseMusicInput(value) {
   if (text.length>200 || /^[a-z][a-z0-9+.-]*:\/\//i.test(text) || /^(?:https?|file|data|javascript):/i.test(text) || /^www\./i.test(text) || /^\S+\.\S+\//.test(text)) return null;
   return {query:text};
 }
-export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl }) {
+export function musicRoomAvailable(rooms, room, limit) {
+  return Boolean(rooms.get(room)?.process || rooms.get(room)?.starting) || [...rooms.values()].filter(player=>player.process || player.starting).length<limit;
+}
+export function installMusic(app, { accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity }) {
   const rooms = new Map();
   function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,error:'',serial:0}); return rooms.get(room); }
   async function authorize(request,reply) {
@@ -56,7 +59,7 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
     player.starting=true; const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.error='';
     const serial=++player.serial;
     try {
-      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'12h'});
+      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'1h'});
       token.addGrant({roomJoin:true,room,canPublish:true,canSubscribe:false});
       const jwt=await token.toJwt();
       if(player.serial!==serial)return;
@@ -71,10 +74,11 @@ export function installMusic(app, { accounts, roomService, apiKey, apiSecret, se
   }
   function snapshot(room) {const p=state(room);return {current:p.current,queue:p.queue,error:p.error,available:existsSync(python)};}
   app.get('/music/:room',async(request,reply)=>{if(!await authorize(request,reply))return;return snapshot(request.params.room);});
-  app.post('/music/:room',async(request,reply)=>{
+  app.post('/music/:room',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(request,reply)=>{
     if(!await authorize(request,reply))return;
     const item=parseMusicInput(request.body?.url);if(!item)return reply.code(400).send({error:'Digite o nome da música ou um link válido do YouTube.'});
     if(!existsSync(python))return reply.code(503).send({error:'O serviço de música não está instalado neste computador.'});
+    if(!musicRoomAvailable(rooms,request.params.room,maxConcurrentRooms))return reply.code(429).send({error:'O limite de calls com música foi atingido. Tente novamente mais tarde.'});
     const player=state(request.params.room);if(player.queue.length>=20)return reply.code(429).send({error:'A fila está cheia.'});
     player.queue.push(item);void next(request.params.room);return reply.code(202).send(snapshot(request.params.room));
   });

@@ -1,0 +1,5 @@
+# Dependências transitivas do LiveKit 1.2.1, fixadas para o build Linux.
+aiofiles==25.1.0
+numpy==2.3.5
+protobuf==7.36.2
+types-protobuf==7.35.1.20260906

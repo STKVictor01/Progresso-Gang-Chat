@@ -1,0 +1,83 @@
+name: progresso-gang
+services:
+  api:
+    image: progresso-gang-api:${PG_RELEASE:?Defina PG_RELEASE}
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+    network_mode: host
+    env_file: /etc/progresso-gang/app.env
+    environment:
+      NODE_ENV: production
+      PG_CHAT_DATABASE: postgres
+      PG_CHAT_CA_CERT: /run/secrets/supabase-ca.crt
+      PG_CHAT_PYTHON: /opt/music/bin/python
+    volumes:
+      - /etc/progresso-gang/supabase-ca.crt:/run/secrets/supabase-ca.crt:ro
+      - api-data:/app/server/data
+      - api-logs:/app/server/logs
+    restart: unless-stopped
+    init: true
+    mem_limit: 3g
+    pids_limit: 160
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/ready',{signal:AbortSignal.timeout(5000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+    logging: &rotation
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  livekit:
+    image: livekit/livekit-server:v1.9.12
+    network_mode: host
+    user: "65532:65532"
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - /etc/progresso-gang/livekit.yaml:/etc/livekit.yaml:ro
+    restart: unless-stopped
+    mem_limit: 3g
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7880/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *rotation
+  web:
+    image: progresso-gang-web:${PG_RELEASE:?Defina PG_RELEASE}
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    network_mode: host
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Defina SITE_DOMAIN}
+      LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN:?Defina LIVEKIT_DOMAIN}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *rotation
+volumes:
+  api-data:
+  api-logs:
+  caddy-data:
+  caddy-config:

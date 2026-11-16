@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test app.test.js music.test.js",
+    "test": "node --test app.test.js music.test.js supabase-auth.test.js",
     "test:postgres": "node --test postgres.test.js",
     "test:migration": "node --test migrate.test.js",
     "dev": "node --watch index.js",
@@ -18,6 +18,7 @@
     "@fastify/cookie": "^11.1.5",
     "@fastify/cors": "^11.4.1",
     "@fastify/rate-limit": "^11.2.2",
+    "@supabase/supabase-js": "2.119.0",
     "argon2": "^0.45.2",
     "dotenv": "^18.0.9",
     "fastify": "^5.12.8",

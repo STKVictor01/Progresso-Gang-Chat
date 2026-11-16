@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { installMusic, parseMusicInput } from './music.js';
+import { installMusic, parseMusicInput, musicRoomAvailable } from './music.js';
+
+test('limite de salas de música preserva filas das calls já em reprodução',()=>{
+  const rooms=new Map([['a',{process:{},starting:false}],['b',{process:null,starting:true}]]);
+  assert.equal(Boolean(musicRoomAvailable(rooms,'a',2)),true);
+  assert.equal(Boolean(musicRoomAvailable(rooms,'c',2)),false);
+  rooms.get('b').starting=false;
+  assert.equal(Boolean(musicRoomAvailable(rooms,'c',2)),true);
+});
 
 test('aceita pesquisa por nome e valida links antes de acionar o bot', () => {
   assert.deepEqual(parseMusicInput('  Clube da Esquina  '), {query:'Clube da Esquina'});

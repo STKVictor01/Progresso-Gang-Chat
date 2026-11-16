@@ -1,0 +1,55 @@
+# Avaliação: Supabase Auth antes da VPS
+
+> Publicação em 16/11/2026: DNS e HTTPS foram configurados, os endereços de autenticação foram atualizados e a API pública responde no modo Supabase. O proprietário vinculou a identidade existente, entrou com ela e confirmou-se que conserva o papel de administrador. O fluxo real de recuperação ainda precisa ser testado.
+
+> Atualização de 15/11/2026: o subdomínio de envio `auth.progressogang.tech` foi verificado no Resend e o proprietário configurou o SMTP no Supabase de produção. O painel confirmou o envio de um convite temporário e o proprietário confirmou o recebimento. Isso não testa ainda confirmação, recuperação ou login pelo chat. Foi criada uma cópia criptografada do esquema privado e restaurada em PostgreSQL isolado: a conta proprietária, as tabelas, o tamanho dos anexos e a ativação de RLS foram verificados. As permissões do esquema para `anon` e `authenticated` também foram verificadas na origem. Depois do backup, a tabela `auth_links` foi criada na produção, com RLS e acesso restrito verificados. A API e o LiveKit iniciaram na VPS; o domínio público ainda não foi apontado e o chat existente no PC continua usando a autenticação anterior. Ainda faltam testes funcionais e uma cópia externa da chave de recuperação.
+
+> Atenção à transição: já existem identidades no Supabase Auth de produção, mas a conta proprietária do chat ainda não está associada por seu ID. Foi preparado um vínculo entre IDs diferentes que exige a senha antiga do chat e a senha da identidade Auth confirmada, mantendo o ID e os privilégios do chat. O cenário passou com provedor simulado e com GoTrue real descartável; a migração também foi verificada em PostgreSQL isolado. Ainda falta validar o fluxo completo na implantação. Não apagar nem mesclar identidades existentes. A conta temporária do teste de e-mail deve ser identificada separadamente antes de eventual remoção.
+
+Registro de 15/11/2026. A autenticação do projeto atual é implementada em `server/accounts.js`: nome de usuário e senha, hash Argon2id, convite de uso único, sessão em cookie seguro, CSRF e privilégios administrados na API. O PostgreSQL do Supabase já armazena os dados do projeto, mas isso não significa que o Supabase Auth já gerencie as contas.
+
+## Viabilidade e dependências
+
+É possível desenvolver e testar uma integração com o Supabase Auth antes da Hostinger, em ambiente local ou em projeto Supabase de testes, sem alterar o banco usado pela comunidade. O Auth não substitui o Fastify, o LiveKit ou a hospedagem: até a futura implantação, o site, a API e as chamadas ainda dependem do computador atual.
+
+A escolha confirmada é usar e-mail e senha para entrar. O nome de usuário continua sendo exibido e editado independentemente do login. O chat atual ainda pede nome e senha: a transição precisa ser acompanhada por um fluxo seguro de vinculação, sem criar e-mails falsos nem marcar endereços como verificados sem comprovação.
+
+Segundo a [documentação Supabase](https://supabase.com/kb/guides/migrate-from-auth0), é possível importar hashes Argon2 e preservar UUIDs compatíveis. Isso torna possível estudar a manutenção das senhas e identidades atuais sem conhecer as senhas em texto, mas não garante migração sem interrupção: é necessário testar a compatibilidade concreta dos hashes, a vinculação da identidade de login e o comportamento das sessões. Os usuários atuais não têm e-mail cadastrado no modelo atual; a associação dos endereços deve ser feita de maneira autenticada e com comprovação de posse.
+
+Foi executado um teste com Supabase Auth `v2.197.0` e PostgreSQL isolados em rede Docker sem acesso público, usando somente credenciais e contas fictícias. Um hash Argon2id produzido com os mesmos parâmetros do chat foi importado preservando o UUID, o login por e-mail funcionou e a senha errada foi rejeitada; uma conta sem e-mail confirmado também foi impedida de entrar. Um segundo ensaio criou uma conta proprietária e uma mensagem na API real do projeto com SQLite descartável, importou o hash da conta fictícia no Auth e confirmou que o identificador autenticado permaneceu igual ao ID da conta e ao autor da mensagem. **Isso é um ensaio de identidade, não a integração do Auth à API do chat.**
+
+Uma senha antiga fictícia de 100 caracteres também autenticou após importação, mas um cadastro novo com esse tamanho foi recusado: o fluxo de criação/troca do Supabase aplica limite de 72 bytes devido ao bcrypt. Será necessário tratar essa diferença na interface e testar a transição real; caracteres não ASCII podem ocupar mais de um byte. O teste não comprova que os e-mails das pessoas existam ou estejam verificados, nem testou envio real de e-mail. O script é `deploy/test-supabase-auth-isolado.mjs`.
+
+O serviço padrão de e-mail do Supabase, conforme a [documentação oficial](https://supabase.com/docs/guides/auth/auth-smtp), é para teste, limitado a endereços da equipe do projeto e a dois envios por hora. Para convites, confirmação ou recuperação de senha por e-mail aos amigos, planejar SMTP próprio ou outro mecanismo suportado. Não adicionar amigos à equipe administrativa do projeto apenas para contornar essa limitação.
+
+O proprietário informou que ainda não possui domínio nem serviço de envio. Isso não impede desenvolvimento e testes isolados, mas precisa ser resolvido antes de oferecer confirmação e recuperação por e-mail à comunidade.
+
+## Proteções a preservar
+
+- IDs associados a mensagens, respostas, anexos, perfis, sons e convites; conta proprietária e atribuição de administrador. Mensagens legadas sem dono continuam sem atribuição presumida.
+- Convites de uso único e cadastro restrito: o Auth não deve abrir uma rota paralela que permita cadastro livre ou contorne a autorização do servidor. Avaliar falhas parciais entre consumir convite e criar identidade, com testes de repetição e recuperação.
+- Permissões e bloqueios verificados no servidor, a partir de dados controlados pelo servidor, nunca de `user_metadata` editável pelo usuário. Confirmar o vínculo entre o usuário autenticado e a conta local em cada operação sensível.
+- Validação das sessões/tokens do Supabase por mecanismo oficial, tratamento de expiração e revogação, proteção CSRF e `Origin` quando o navegador usar cookies. A chave secreta administrativa deve ficar somente no backend.
+- Sessões anteriores, recuperação, troca de nome e senha, desativação, chamadas LiveKit e visualização móvel devem ser testados. Planejar que usuários precisem entrar novamente, a menos que uma transição comprovada preserve suas sessões.
+
+## Sequência segura
+
+1. Confirmar o identificador de login e a experiência esperada para as contas existentes.
+2. Preparar implementação opcional e testes com contas fictícias em ambiente Auth isolado; testar cadastro por convite, login, recuperação, expiração, desativação, permissões, identidade do proprietário e vinculação de mensagens.
+3. Validar um backup consistente do banco ativo e sua restauração em destino isolado; ensaiar importação dos hashes/IDs e reconciliação das contas sem incluir dados reais em logs ou Git.
+4. Revisar configurações de SMTP, limites, URL de redirecionamento e o plano de reversão. Descrever o impacto para cada membro e obter a autorização necessária antes de configurar ou migrar o ambiente de produção.
+5. Só após essa autorização, ativar a mudança em janela combinada e validar contas reais. Não é necessário contratar Hostinger para realizar as etapas de desenvolvimento e teste.
+
+## Implementação preparada em 15/11/2026
+
+O código desta cópia tem uma integração opcional com o SDK do Supabase Auth, desativada por padrão (`PG_CHAT_AUTH=local`). O acesso usa e-mail e senha; contas atuais podem vincular e-mail usando nome e senha antigos, e a conta continua com o mesmo ID, histórico e privilégios. O servidor mantém convites, autorização por conta, cookies HttpOnly, validação de origem e CSRF. O vínculo de e-mail precisa ser confirmado antes do acesso. O servidor valida o usuário pelo Auth em cada requisição autenticada e não usa metadados editáveis como permissão.
+
+Atualização de 15/11/2026: a recuperação por e-mail e a renovação de sessão foram implementadas nesta cópia. Antes de habilitar para a comunidade, ainda é necessário:
+
+1. Configurar SMTP próprio, confirmação de e-mail e URL de redirecionamento HTTPS autorizada no Supabase. No modelo de e-mail **Reset Password**, inserir o conteúdo de `deploy/supabase-reset-email.html`, que entrega o token de uso único no fragmento do endereço, e desativar reescrita/rastreamento dos links de autenticação no provedor de e-mail. O SMTP padrão não atende amigos fora da equipe do Supabase. Testar envio e recebimento reais no ambiente de testes antes de oferecer ao grupo.
+2. Testar novas contas, convites, recuperação e contas já existentes por desktop e celular; o ensaio de envio usou uma caixa Mailpit descartável, sem enviar e-mails reais. A sessão do chat tem duração máxima de sete dias e é renovada enquanto estiver válida; a coordenação de renovações concorrentes foi testada em uma única instância da API. Antes de usar várias réplicas, é preciso implementar coordenação compartilhada e testá-la.
+3. Antes de tocar no projeto real, obter autorização, gerar backup consistente do banco ativo e validar restauração isolada. Aplicar somente após revisão a migração `supabase/migrations/20261116005700_supabase_auth_links.sql`, que cria vínculos no esquema privado com RLS. A nova autenticação exige esse esquema; não rode o utilitário de migração SQLite para copiar de novo o banco existente. Não apague o hash antigo antes de haver plano de recuperação seguro.
+4. No ambiente futuro, configurar `PG_CHAT_AUTH=supabase`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `SUPABASE_SECRET_KEY` exclusivamente no servidor, além de `PG_CHAT_SITE_ORIGIN` HTTPS. Nunca colocar a chave secreta no cliente, repositório ou mensagens. Configurar e testar as URLs do Auth em um projeto de testes separado primeiro.
+5. Ao habilitar, sessões antigas deixarão de autenticar e todos precisarão vincular seu e-mail ou entrar novamente. O primeiro vínculo depende da senha antiga; uma conta sem senha conhecida requer procedimento de recuperação revisado. A reversão precisa considerar contas e senhas criadas ou modificadas no Auth: voltar ao modo antigo não as reconcilia automaticamente.
+
+**Testes:** testes com provedor simulado verificam convite, permissões, vínculo da conta antiga, CSRF, indisponibilidade, renovações concorrentes e recuperação de uso único. A API e o SDK foram exercitados contra GoTrue, PostgreSQL com TLS verificado e Mailpit descartáveis: conta Argon2 existente, confirmação real no correio fictício, convite, renovação e recuperação de senha passaram. A migração de vínculos também foi aplicada em esquema descartável, com RLS e ausência de permissão de leitura para `anon` e `authenticated` verificadas. Envio via provedor externo, carga, múltiplas instâncias e dispositivos reais permanecem sem comprovação. O projeto Supabase e os serviços reais não foram alterados.

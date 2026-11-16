@@ -1,0 +1,12 @@
+# Copie para /etc/progresso-gang/livekit.yaml e configure uma chave e um segredo exclusivos.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: true
+keys:
+  SUBSTITUIR: SUBSTITUIR_POR_SEGREDO_ALEATORIO
+# TURN/TLS exige encaminhamento L4 na porta 443 e certificado separado.
+# Ele não está ativado neste modelo; redes restritas podem não conectar.

@@ -26,9 +26,18 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     const id=randomUUID(), image=await sharp({create:{width:4,height:4,channels:3,background:'red'}}).png().toBuffer();
     assert.equal((await call(user,'POST','/uploads',image,{'content-type':'application/octet-stream','x-upload-id':id})).statusCode,201);
     const message=await call(user,'POST','/messages',{clientId:randomUUID(),text:'Teste isolado',channel:'general',attachmentIds:[id]});assert.equal(message.statusCode,201);
+    const response=await call(admin,'POST','/messages',{clientId:randomUUID(),text:'Resposta isolada',channel:'general',replyTo:message.json().id});
+    assert.equal(response.statusCode,201);assert.equal(response.json().reply.text,'Teste isolado');
+    assert.equal((await call(admin,'POST','/messages',{clientId:randomUUID(),text:'Outro canal',channel:'voice:geral',replyTo:message.json().id})).statusCode,400);
+    assert.equal((await call(user,'PATCH','/auth/username',{username:'Pessoa renomeada'})).statusCode,200);
+    assert.equal((await call(admin,'PATCH','/admin/users/'+member.json().user.id+'/username',{username:'Vitão'})).statusCode,409);
+    assert.equal((await call(admin,'PATCH','/admin/users/'+member.json().user.id+'/username',{username:'Pessoa final'})).statusCode,200);
+    assert.equal((await call(user,'GET','/auth/me')).json().user.name,'Pessoa final');
     const history=await call(admin,'GET','/messages?channel=general');assert.equal(history.statusCode,200);assert.equal(history.json().messages[0].attachments[0].id,id);
     assert.equal((await call(admin,'GET','/media/'+id)).statusCode,200);
     assert.equal((await call(admin,'DELETE','/messages/'+message.json().id)).statusCode,200);
+    const remaining=(await call(admin,'GET','/messages?channel=general')).json().messages;
+    assert.deepEqual(remaining.find(item=>item.id===response.json().id).reply,{id:message.json().id,deleted:true});
     assert.equal((await call(admin,'GET','/media/'+id)).statusCode,404);
     assert.equal((await call({origin},'GET','/messages')).statusCode,401);
     assert.equal((await call(user,'GET','/admin/logs')).statusCode,403);

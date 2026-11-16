@@ -1,0 +1,27 @@
+{$SITE_DOMAIN} {
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    -Server
+  }
+  handle_path /api/* {
+    @internal path /health /ready
+    respond @internal 404
+    reverse_proxy 127.0.0.1:3001
+  }
+  handle {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+  }
+}
+
+{$LIVEKIT_DOMAIN} {
+  reverse_proxy 127.0.0.1:7880
+}
+
+http://127.0.0.1:9090 {
+  respond /health "ok" 200
+}

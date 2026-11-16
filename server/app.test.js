@@ -7,9 +7,44 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { createApp as createRawApp } from './app.js';
 import { normalizeSoundboardWav } from './soundboard-audio.js';
+import { runtimeConfig } from './runtime-config.js';
 const options = { apiKey: 'testkey', apiSecret: randomBytes(32).toString('hex'), serverUrl: 'ws://localhost:7880', logger: false, secureCookies:false, allowedOrigins:['http://localhost:5173'] };
 
 const testPassword=randomBytes(24).toString('base64url');
+test('produção exige PostgreSQL, CA e origens HTTPS seguras',()=>{
+  const base={NODE_ENV:'production',PG_CHAT_DATABASE:'postgres',DATABASE_URL:'postgres://example',PG_CHAT_SITE_ORIGIN:'https://gang.example.com',LIVEKIT_URL:'wss://live.example.com',LIVEKIT_API_KEY:'key',LIVEKIT_API_SECRET:randomBytes(32).toString('hex')};
+  const ca=join(import.meta.dirname,'package.json');
+  for(const env of [{...base,PG_CHAT_DATABASE:''},{...base,DATABASE_URL:''},{...base,PG_CHAT_SITE_ORIGIN:'http://gang.example.com'},{...base,PG_CHAT_SITE_ORIGIN:'https://gang.example.com/path'},{...base,LIVEKIT_URL:'ws://live.example.com'},{...base,LIVEKIT_API_SECRET:''},{...base,PG_CHAT_MUSIC_MAX_ROOMS:'0'}]) assert.throws(()=>runtimeConfig(env,ca));
+  assert.throws(()=>runtimeConfig(base,join(import.meta.dirname,'ca-inexistente')));
+  assert.deepEqual(runtimeConfig(base,ca).allowedOrigins,['https://gang.example.com']);
+  assert.equal(runtimeConfig({},ca).allowedOrigins,undefined);
+});
+test('inicialização protegida não aceita criar conta em SQLite vazio',async()=>{
+  await assert.rejects(createRawApp({...options,dbPath:':memory:',requireExistingOwner:true}),/Produção exige o banco existente/);
+});
+test('tentativas distribuídas para a mesma conta também são limitadas',async()=>{
+  const app=await createRawApp({...options,dbPath:':memory:'});
+  try{
+    let response;
+    for(let i=1;i<=21;i++)response=await app.inject({method:'POST',url:'/auth/login',remoteAddress:'192.0.2.'+i,headers:{origin:'http://localhost:5173'},payload:{username:'Pessoa',password:testPassword}});
+    assert.equal(response.statusCode,429);
+  }finally{await app.close();}
+});
+test('origem de produção respeita cookies, CSRF e CORS',async()=>{
+  const token=randomBytes(32).toString('base64url'),origin='https://gang.example.com';
+  const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:token,secureCookies:true,allowedOrigins:[origin]});
+  try{
+    assert.equal((await app.inject('/ready')).json().ready,true);
+    const good=await app.inject({method:'POST',url:'/auth/setup',headers:{origin},payload:{token,password:testPassword}});
+    assert.equal(good.statusCode,200);assert.equal(good.cookies[0].secure,true);assert.equal(good.cookies[0].httpOnly,true);assert.equal(good.cookies[0].sameSite,'Strict');
+    const credentials={cookie:'pg_session='+good.cookies[0].value,'x-csrf-token':good.json().csrf};
+    assert.equal((await app.inject({method:'POST',url:'/admin/invites',headers:{...credentials,origin:'https://evil.example'}})).statusCode,403);
+    assert.equal((await app.inject({method:'POST',url:'/admin/invites',headers:{origin,cookie:credentials.cookie}})).statusCode,403);
+    assert.equal((await app.inject({method:'POST',url:'/admin/invites',headers:{...credentials,origin}})).statusCode,200);
+    assert.equal((await app.inject({url:'/site',headers:{origin}})).headers['access-control-allow-origin'],origin);
+    assert.notEqual((await app.inject({url:'/site',headers:{origin:'https://evil.example'}})).headers['access-control-allow-origin'],'https://evil.example');
+  }finally{await app.close();}
+});
 test('soundboard normalizes loud and quiet audio to -6 dB and preserves silence', () => {
   const target = Math.floor(32767 * 10 ** (-6 / 20));
   for (const peak of [1000,32767]) {
@@ -132,6 +167,50 @@ async function createApp(options){
   app.inject=options=>inject(typeof options==='string'?{url:options,headers:{cookie}}:{...options,headers:{origin:'http://localhost:5173',cookie,'x-csrf-token':csrf,...options.headers}});
   return app;
 }
+
+test('respostas mantêm o vínculo apenas no canal e ocultam mensagens excluídas',async()=>{
+  const app=await createApp({...options,dbPath:':memory:'});
+  try{
+    const send=payload=>app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),...payload}});
+    const original=await send({text:'Mensagem original'});
+    const id=original.json().id;
+    const payload={text:'Minha resposta',replyTo:id,clientId:randomUUID()};
+    const response=await app.inject({method:'POST',url:'/messages',payload});
+    assert.equal(response.statusCode,201);
+    assert.equal(response.json().reply.text,'Mensagem original');
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload})).json().id,response.json().id);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{...payload,replyTo:null}})).statusCode,409);
+    assert.equal((await send({channel:'voice:geral',text:'Outro canal',replyTo:id})).statusCode,400);
+    assert.equal((await send({text:'Inválida',replyTo:999999})).statusCode,400);
+    assert.equal((await app.inject({method:'DELETE',url:'/messages/'+id})).statusCode,200);
+    const saved=(await app.inject('/messages')).json().messages.find(message=>message.id===response.json().id);
+    assert.deepEqual(saved.reply,{id,deleted:true});
+    assert.equal((await send({text:'Excluída',replyTo:id})).statusCode,400);
+  } finally {await app.close();}
+});
+
+test('usuários e administradores alteram nomes sem perder login ou permissões',async()=>{
+  const token=randomBytes(32).toString('base64url');
+  const app=await createRawApp({...options,dbPath:':memory:',ownerSetupToken:token});
+  const origin='http://localhost:5173';
+  const headers=r=>({origin,cookie:r.cookies[0].name+'='+r.cookies[0].value,'x-csrf-token':r.json().csrf});
+  const req=(h,method,url,payload)=>app.inject({headers:h,method,url,payload});
+  try{
+    const owner=await req({origin},'POST','/auth/setup',{token,password:testPassword});
+    const admin=headers(owner);
+    const invitation=await req(admin,'POST','/admin/invites',{});
+    const member=await req({origin},'POST','/auth/register',{token:invitation.json().token,username:'Pessoa A',password:testPassword});
+    const user=headers(member),id=member.json().user.id;
+    assert.equal((await req(user,'PATCH','/auth/username',{username:'Pessoa Nova'})).statusCode,200);
+    assert.equal((await req({origin},'POST','/auth/login',{username:'Pessoa Nova',password:testPassword})).statusCode,200);
+    assert.equal((await req({origin},'POST','/auth/login',{username:'Pessoa A',password:testPassword})).statusCode,401);
+    assert.equal((await req(user,'PATCH','/admin/users/'+owner.json().user.id+'/username',{username:'Intruso'})).statusCode,403);
+    assert.equal((await req(admin,'PATCH','/admin/users/'+id+'/username',{username:'Vitão'})).statusCode,409);
+    assert.equal((await req(admin,'PATCH','/admin/users/'+id+'/username',{username:'Pessoa Final'})).statusCode,200);
+    assert.equal((await req(user,'GET','/auth/me')).json().user.name,'Pessoa Final');
+    assert.equal((await req({origin},'POST','/auth/login',{username:'Pessoa Final',password:testPassword})).statusCode,200);
+  } finally {await app.close();}
+});
 
 test('accounts enforce owner reservation, sessions, CSRF, author ownership and admin permissions',async()=>{
   const setupToken=randomBytes(32).toString('base64url');

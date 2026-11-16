@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { runtimeConfig } from './runtime-config.js';
+import { createSupabaseAuth } from './supabase-auth.js';
 
+const runtime=runtimeConfig(process.env,fileURLToPath(new URL('./data/supabase-ca.crt', import.meta.url)));
 const setupFile = fileURLToPath(new URL('./data/owner-setup.json',import.meta.url));
 mkdirSync(fileURLToPath(new URL('./data',import.meta.url)),{recursive:true});
 let setup;
@@ -17,11 +20,17 @@ if (process.env.PG_CHAT_DATABASE === 'postgres' && !process.env.DATABASE_URL) th
 const app = await createApp({
   dbPath: fileURLToPath(new URL('./data/chat.sqlite', import.meta.url)),
   databaseUrl: process.env.PG_CHAT_DATABASE === 'postgres' ? process.env.DATABASE_URL : undefined,
-  certificatePath: fileURLToPath(new URL('./data/supabase-ca.crt', import.meta.url)),
+  certificatePath: runtime.certificatePath,
+  allowedOrigins: runtime.allowedOrigins,
+  trustProxy: runtime.trustProxy,
+  requireExistingOwner: process.env.NODE_ENV==='production',
+  musicMaxRooms: runtime.musicMaxRooms,
+  authProvider: runtime.supabaseAuth ? createSupabaseAuth(runtime.supabaseAuth) : undefined,
   activityLogPath: fileURLToPath(new URL('./logs/activity.jsonl', import.meta.url)),
   apiKey: process.env.LIVEKIT_API_KEY,
   apiSecret: process.env.LIVEKIT_API_SECRET,
   serverUrl: process.env.LIVEKIT_URL,
+  internalServerUrl: runtime.livekitInternalUrl,
   ownerSetupToken: setup.token,
   ownerSetupExpiresAt: setup.expiresAt,
   onOwnerReady: () => { try { unlinkSync(setupFile); } catch {} },

@@ -462,3 +462,54 @@ test('health identifies the accounts backend so the launcher can replace older v
     assert.equal((await app.inject({method:'POST',url:'/auth/login',headers:{origin:'http://localhost:5173'},payload:{username:'ninguem',password:testPassword}})).statusCode,401);
   }finally{await app.close();}
 });
+
+test('cor do nick aceita só #RRGGBB legível e é mantida por clientes antigos', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const profile=async()=>(await app.inject('/presence')).json().profiles[0];
+    assert.equal((await profile()).nameColor,null);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,nameColor:'#FF8800'}})).statusCode,200);
+    assert.equal((await profile()).nameColor,'#ff8800');
+    for (const nameColor of ['#000000','#111','red','#gg0000',12]) assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,nameColor}})).statusCode,400);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'sem cor no pedido',avatarId:null}})).statusCode,200);
+    assert.equal((await profile()).nameColor,'#ff8800');
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,nameColor:null}})).statusCode,200);
+    assert.equal((await profile()).nameColor,null);
+  } finally { await app.close(); }
+});
+
+test('biblioteca de GIFs usa a chave só no servidor e guarda o GIF como anexo', async () => {
+  const {default:sharp}=await import('sharp');
+  const gif=await sharp({create:{width:6,height:6,channels:3,background:'blue'}}).gif().toBuffer();
+  const calls=[];
+  const fetchImpl=async url=>{
+    const target=new URL(url);calls.push(target);
+    if(target.hostname==='api.giphy.com'){
+      const item={id:'abc123',title:'Salve',images:{fixed_width:{url:'https://media1.giphy.com/media/abc123/200w.gif',width:'200',height:'150'},downsized:{url:target.searchParams.get('q')==='evil'?'https://evil.example.com/x.gif':'https://media1.giphy.com/media/abc123/giphy.gif'}}};
+      const body=target.pathname.endsWith('/abc123')?{data:item}:{data:[item,{id:'bad',images:{fixed_width:{url:'https://evil.example.com/x.gif'}}}],pagination:{count:2,total_count:2}};
+      return new Response(JSON.stringify(body),{status:200});
+    }
+    if(target.hostname==='media1.giphy.com')return new Response(gif,{status:200});
+    throw Error('host inesperado');
+  };
+  const disabled=await createApp({...options,dbPath:':memory:'});
+  try { assert.equal((await disabled.inject('/gifs?q=oi')).statusCode,503); } finally { await disabled.close(); }
+  const app=await createApp({...options,dbPath:':memory:',gifApiKey:'chave-teste',fetchImpl});
+  try {
+    const search=await app.inject('/gifs?q=bom%20dia');
+    assert.equal(search.statusCode,200);
+    assert.deepEqual(search.json().gifs.map(item=>item.id),['abc123']);
+    assert.equal(search.json().nextOffset,null);
+    assert.ok(!search.body.includes('chave-teste'));
+    assert.equal(calls[0].pathname,'/v1/gifs/search');
+    assert.equal((await app.inject('/gifs?q='+'x'.repeat(51))).statusCode,400);
+    assert.equal((await app.inject({method:'POST',url:'/gifs/abc123',payload:{id:randomUUID(),channel:'inexistente'}})).statusCode,400);
+    const id=randomUUID();
+    const attached=await app.inject({method:'POST',url:'/gifs/abc123',payload:{id,channel:'general'}});
+    assert.equal(attached.statusCode,201,attached.body);
+    assert.equal(attached.json().mime,'image/gif');
+    const message=await app.inject({method:'POST',url:'/messages',payload:{channel:'general',clientId:randomUUID(),attachmentIds:[id]}});
+    assert.equal(message.statusCode,201);
+    assert.equal(message.json().attachments[0].id,id);
+  } finally { await app.close(); }
+});

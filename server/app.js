@@ -13,12 +13,20 @@ import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 21;
+export const HEALTH_VERSION = 22;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const validName = name => typeof name === 'string' && name.trim().length >= 2 && name.trim().length <= 32;
+const GIF_ID = /^[A-Za-z0-9]{1,64}$/;
+const GIF_PAGE = 24;
+// Cores muito escuras somem no fundo do chat: exige contraste mínimo de 3:1 com o fundo.
+export function readableNameColor(value) {
+  if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) return false;
+  const [r,g,b] = [1,3,5].map(index => parseInt(value.slice(index,index+2),16)/255).map(c => c <= 0.03928 ? c/12.92 : ((c+0.055)/1.055)**2.4);
+  return 0.2126*r + 0.7152*g + 0.0722*b >= 0.13;
+}
 function imageSignature(buffer) {
   if (buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'png';
   if (buffer[0]===255 && buffer[1]===216 && buffer[2]===255) return 'jpeg';
@@ -33,7 +41,7 @@ function uploadName(value) {
 function dispositionName(name) {
   return encodeURIComponent(name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
 }
-export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
+export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, fetchImpl = globalThis.fetch, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
   if(requireExistingOwner) {
@@ -100,7 +108,10 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   (await db.exec(`CREATE TABLE IF NOT EXISTS message_events (seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER NOT NULL,channel TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(message_id,kind));
     CREATE INDEX IF NOT EXISTS message_events_channel_seq ON message_events(channel,seq);
     INSERT OR IGNORE INTO message_events(message_id,channel,kind) SELECT id,channel,'created' FROM messages;`));
+  if (!(await db.prepare('PRAGMA table_info(profiles)').all()).some(c=>c.name==='name_color')) (await db.exec('ALTER TABLE profiles ADD COLUMN name_color TEXT'));
   }
+  // No PostgreSQL a coluna vem da migração; até ela ser aplicada, a cor do nick fica desativada.
+  const nameColors = db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='profiles' AND column_name='name_color'").get());
   // The launcher compares this version to restart a backend left running from before an update.
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], database:db.kind, pid:process.pid }));
   app.get('/ready', async (_request,reply) => {try {await db.prepare('SELECT 1 AS ok').get();return {ready:true};} catch {return reply.code(503).send({ready:false});}});
@@ -157,40 +168,87 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if(uploadChannel && (typeof uploadChannel !== 'string' || !(await accounts.conversationExists(uploadChannel)))) return reply.code(400).send({error:'Canal inválido.'});
     const limit=uploadChannel?MAX_GENERAL_UPLOAD_BYTES:MAX_UPLOAD_BYTES;
     if(buffer.length>limit)return reply.code(413).send({error:`A imagem deve ter até ${limit===MAX_GENERAL_UPLOAD_BYTES?100:8} MB.`});
+    const result=await storeMedia({id,buffer,user:request.user,limit,general:Boolean(uploadChannel),filename:uploadName(request.headers['x-upload-name'])});
+    return result.error?reply.code(result.status).send({error:result.error}):reply.code(result.status).send(serializeMedia(result.media));
+  });
+  // Valida, normaliza e guarda um anexo do usuário. Usado pelos envios e pelos GIFs da biblioteca.
+  async function storeMedia({id,buffer,user,limit,general,filename}) {
     const format=imageSignature(buffer);
-    const general=Boolean(uploadChannel);
-    if(!format&&!general) return reply.code(415).send({error:'Use PNG, JPG, WebP ou GIF. Outros arquivos não são aceitos neste canal.'});
-    const filename=uploadName(request.headers['x-upload-name']);
+    if(!format&&!general) return {status:415,error:'Use PNG, JPG, WebP ou GIF. Outros arquivos não são aceitos neste canal.'};
     const requestHash=createHash('sha256').update(buffer).digest('hex');
-    const previous=(await db.prepare(`SELECT ${mediaFields},a.request_hash FROM attachments a WHERE id=? AND owner_id=?`).get(id,request.user.id));
+    const previous=(await db.prepare(`SELECT ${mediaFields},a.request_hash FROM attachments a WHERE id=? AND owner_id=?`).get(id,user.id));
     if(previous){
-      if(previous.request_hash!==requestHash) return reply.code(409).send({error:'Esse identificador já pertence a outro arquivo.'});
-      const {request_hash,...metadata}=previous;return serializeMedia(metadata);
+      if(previous.request_hash!==requestHash) return {status:409,error:'Esse identificador já pertence a outro arquivo.'};
+      const {request_hash,...metadata}=previous;return {status:200,media:metadata};
     }
     let normalized=buffer, metadata={width:0,height:0,pages:1};
     if(format)try{
       const input=sharp(buffer,{animated:true,failOn:'error',limitInputPixels:MAX_PIXELS});
       metadata=await input.metadata();
       const height=metadata.pageHeight||metadata.height;
-      if(metadata.format!==format||!metadata.width||!height||(metadata.pages||1)>200||metadata.width*height*(metadata.pages||1)>MAX_PIXELS) return reply.code(413).send({error:'Essa imagem ou animação é grande demais. Envie uma versão menor.'});
+      if(metadata.format!==format||!metadata.width||!height||(metadata.pages||1)>200||metadata.width*height*(metadata.pages||1)>MAX_PIXELS) return {status:413,error:'Essa imagem ou animação é grande demais. Envie uma versão menor.'};
       const animation={loop:metadata.loop,delay:metadata.delay};
       const pipeline=format==='jpeg'?input.rotate().jpeg({quality:90}):format==='png'?input.png():format==='gif'?input.gif(animation):input.webp({quality:90,...animation});
       normalized=await pipeline.toBuffer();
       metadata=await sharp(normalized,{animated:true,limitInputPixels:MAX_PIXELS}).metadata();
-    }catch{return reply.code(415).send({error:'Não foi possível ler essa imagem. O arquivo pode estar incompleto ou inválido.'});}
-    if(normalized.length>limit) return reply.code(413).send({error:`A imagem processada excede ${limit===MAX_GENERAL_UPLOAD_BYTES?100:8} MB. Envie uma versão menor.`});
+    }catch{return {status:415,error:'Não foi possível ler essa imagem. O arquivo pode estar incompleto ou inválido.'};}
+    if(normalized.length>limit) return {status:413,error:`A imagem processada excede ${limit===MAX_GENERAL_UPLOAD_BYTES?100:8} MB. Envie uma versão menor.`};
     await cleanAbandoned();
     const media={id,mime:format?'image/'+format:'application/octet-stream',width:metadata.width,height:metadata.pageHeight||metadata.height,size:normalized.length,animated:(metadata.pages||1)>1,filename};
-    const result=await db.transaction(async()=>{
+    return db.transaction(async()=>{
       await db.lock('attachments');
-      const raced=await db.prepare(`SELECT ${mediaFields},a.request_hash FROM attachments a WHERE id=? AND owner_id=?`).get(id,request.user.id);
+      const raced=await db.prepare(`SELECT ${mediaFields},a.request_hash FROM attachments a WHERE id=? AND owner_id=?`).get(id,user.id);
       if(raced){if(raced.request_hash!==requestHash)return {status:409,error:'Identificador de arquivo já utilizado.'};const{request_hash,...meta}=raced;return {status:200,media:meta};}
       const used=Number((await db.prepare('SELECT COALESCE(SUM(size),0) AS bytes FROM attachments').get()).bytes);
       if(used+normalized.length>maxMediaStorageBytes)return {status:507,error:'O espaço reservado para imagens neste servidor está cheio. Avise o responsável pelo PC.'};
       if(await db.prepare('SELECT id FROM attachments WHERE id=?').get(id))return {status:409,error:'Identificador de arquivo já utilizado.'};
-      await db.prepare('INSERT INTO attachments(id,request_hash,mime,width,height,size,animated,data,created_at,owner_id,filename) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id,requestHash,media.mime,media.width,media.height,media.size,Number(media.animated),normalized,Date.now(),request.user.id,media.filename);
+      await db.prepare('INSERT INTO attachments(id,request_hash,mime,width,height,size,animated,data,created_at,owner_id,filename) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id,requestHash,media.mime,media.width,media.height,media.size,Number(media.animated),normalized,Date.now(),user.id,media.filename);
       return {status:201,media};
     });
+  }
+  // Biblioteca de GIFs (GIPHY). A chave fica só no servidor; o navegador recebe apenas prévias públicas.
+  async function giphy(path,params) {
+    const url=new URL('https://api.giphy.com/v1/gifs'+path);
+    url.searchParams.set('api_key',gifApiKey);
+    for(const [key,value] of Object.entries(params))url.searchParams.set(key,String(value));
+    const response=await fetchImpl(url,{signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error('GIPHY respondeu '+response.status);
+    return response.json();
+  }
+  const giphyMedia=value=>{try{const url=new URL(value);return url.protocol==='https:'&&/(^|\.)giphy\.com$/.test(url.hostname)&&!url.username&&!url.password?url:null;}catch{return null;}};
+  function serializeGif(gif) {
+    const preview=gif?.images?.fixed_width_downsampled||gif?.images?.fixed_width;
+    const url=giphyMedia(preview?.webp||preview?.url);
+    if(typeof gif?.id!=='string'||!GIF_ID.test(gif.id)||!url)return null;
+    return {id:gif.id,title:typeof gif.title==='string'&&gif.title.trim()?gif.title.trim().slice(0,120):'GIF',previewUrl:url.href,width:Number(preview.width)||200,height:Number(preview.height)||200};
+  }
+  app.get('/gifs', {config:{rateLimit:{max:60,timeWindow:'1 minute'}}}, async (request,reply) => {
+    if(!gifApiKey)return reply.code(503).send({error:'A biblioteca de GIFs ainda não foi configurada no servidor.'});
+    const {q='',offset='0'}=request.query;
+    if(typeof q!=='string'||q.length>50||typeof offset!=='string'||!/^\d{1,4}$/.test(offset))return reply.code(400).send({error:'Busca inválida.'});
+    const query=q.trim(), start=Number(offset);
+    try{
+      const data=await giphy(query?'/search':'/trending',{...(query?{q:query,lang:'pt'}:{}),limit:GIF_PAGE,offset:start,rating:'pg-13'});
+      const gifs=(Array.isArray(data?.data)?data.data:[]).map(serializeGif).filter(Boolean);
+      const count=Number(data?.pagination?.count)||0, total=Number(data?.pagination?.total_count)||0;
+      return {gifs,nextOffset:count&&start+count<Math.min(total,4999)?start+count:null};
+    }catch{return reply.code(502).send({error:'Não foi possível buscar GIFs agora. Tente novamente.'});}
+  });
+  app.post('/gifs/:gifId', {config:{rateLimit:{max:20,timeWindow:'1 minute'}}}, async (request,reply) => {
+    if(!gifApiKey)return reply.code(503).send({error:'A biblioteca de GIFs ainda não foi configurada no servidor.'});
+    const {gifId}=request.params, {id,channel}=request.body??{};
+    if(!GIF_ID.test(gifId)||typeof id!=='string'||!UUID.test(id)||typeof channel!=='string'||!(await accounts.conversationExists(channel)))return reply.code(400).send({error:'GIF ou canal inválido.'});
+    let buffer;
+    try{
+      const gif=(await giphy('/'+gifId,{}))?.data;
+      const source=giphyMedia(gif?.images?.downsized?.url||gif?.images?.fixed_height?.url);
+      if(!source)return reply.code(404).send({error:'GIF não encontrado.'});
+      const response=await fetchImpl(source,{signal:AbortSignal.timeout(15000),redirect:'error'});
+      if(!response.ok||Number(response.headers.get('content-length')||0)>MAX_UPLOAD_BYTES)throw Error('download');
+      buffer=Buffer.from(await response.arrayBuffer());
+    }catch{return reply.code(502).send({error:'Não foi possível baixar esse GIF. Tente outro.'});}
+    if(buffer.length>MAX_UPLOAD_BYTES)return reply.code(413).send({error:'Esse GIF é grande demais. Tente outro.'});
+    const result=await storeMedia({id,buffer,user:request.user,limit:MAX_UPLOAD_BYTES,general:false,filename:'gif.gif'});
     return result.error?reply.code(result.status).send({error:result.error}):reply.code(result.status).send(serializeMedia(result.media));
   });
   let largeDownloads=0;
@@ -241,15 +299,19 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const now = Date.now();
     online.set(request.user.id, now);
     for (const [id, seen] of online) if (now-seen > 45000) online.delete(id);
-    const rows = (await db.prepare('SELECT u.id,u.username,u.active,p.description,p.avatar_id FROM users u LEFT JOIN profiles p ON p.user_id=u.id').all());
-    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null });
-    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile) };
+    const rows = (await db.prepare(`SELECT u.id,u.username,u.active,p.description,p.avatar_id${nameColors?',p.name_color':''} FROM users u LEFT JOIN profiles p ON p.user_id=u.id`).all());
+    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null });
+    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors };
   });
   app.patch('/profile', async (request,reply) => {
-    const {description,avatarId} = request.body ?? {};
+    const {description,avatarId,nameColor} = request.body ?? {};
     if (typeof description !== 'string' || description.length > 200 || !(avatarId === null || typeof avatarId === 'string' && UUID.test(avatarId))) return reply.code(400).send({error:'Descrição ou imagem inválida.'});
+    if (!(nameColor === undefined || nameColor === null || readableNameColor(nameColor))) return reply.code(400).send({error:'Escolha uma cor no formato #RRGGBB e clara o bastante para ler no fundo escuro.'});
+    if (nameColor && !nameColors) return reply.code(503).send({error:'A cor do nick ainda não foi ativada no servidor.'});
     if (avatarId && !(await db.prepare("SELECT id FROM attachments WHERE id=? AND owner_id=? AND size<=? AND mime LIKE 'image/%' AND id NOT IN (SELECT attachment_id FROM message_attachments)").get(avatarId,request.user.id,MAX_UPLOAD_BYTES))) return reply.code(400).send({error:'Envie sua imagem novamente. Fotos de perfil têm limite de 8 MB.'});
-    (await db.prepare('INSERT INTO profiles(user_id,description,avatar_id) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id').run(request.user.id,description.trim(),avatarId));
+    // Clientes antigos não enviam a cor; nesse caso ela é mantida.
+    if (nameColors && nameColor !== undefined) (await db.prepare('INSERT INTO profiles(user_id,description,avatar_id,name_color) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id,name_color=excluded.name_color').run(request.user.id,description.trim(),avatarId,nameColor?nameColor.toLowerCase():null));
+    else (await db.prepare('INSERT INTO profiles(user_id,description,avatar_id) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET description=excluded.description,avatar_id=excluded.avatar_id').run(request.user.id,description.trim(),avatarId));
     return {ok:true};
   });
   app.get('/messages', async (request,reply) => {

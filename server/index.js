@@ -34,6 +34,7 @@ const app = await createApp({
   internalServerUrl: runtime.livekitInternalUrl,
   ownerSetupToken: setup.token,
   ownerSetupExpiresAt: setup.expiresAt,
+  gifApiKey: process.env.GIPHY_API_KEY || undefined,
   onOwnerReady: () => { try { unlinkSync(setupFile); } catch {} },
 });
 // Never leave a setup link behind once the owner has set a password.

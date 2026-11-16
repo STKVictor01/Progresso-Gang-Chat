@@ -54,6 +54,7 @@ function Member({ participant }: { participant: Participant }) {
   const profile = profiles.find(person => person.id === participant.identity.split(':')[0]);
   const botAvatar = participant.identity.startsWith('music-bot:') ? '/bot-musica.png' : null;
   const label = participant.name || 'Participante';
+  const nameColor = profile?.nameColor ? {color:profile.nameColor} : undefined;
   const settings = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [position,setPosition] = useState({top:0,left:0});
@@ -78,7 +79,7 @@ function Member({ participant }: { participant: Participant }) {
   }, []);
   return <li className={`member ${speaking ? 'speaking' : ''}`}>
     <button className="voice-profile-button" disabled={!profile} onClick={()=>profile && showProfile(profile.id)} aria-label={'Ver perfil de '+label}>{profile?.avatarUrl || botAvatar ? <img className="member-avatar" src={profile?.avatarUrl || botAvatar || undefined} alt=""/> : <span className="member-avatar">{label.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}</button>
-    {participant.isLocal ? <span className="member-name">{label}<small>Você</small></span> : <><button className="voice-member-trigger" ref={button} onClick={openSettings} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name">{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Áudio de '+label}><strong>{label}</strong><ParticipantAudioControls participant={participant} /></div>,document.body)}</>}
+    {participant.isLocal ? <span className="member-name" style={nameColor}>{label}<small>Você</small></span> : <><button className="voice-member-trigger" ref={button} onClick={openSettings} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name" style={nameColor}>{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Áudio de '+label}><strong>{label}</strong><ParticipantAudioControls participant={participant} /></div>,document.body)}</>}
     <QuickParticipantMute participant={participant} />
   </li>;
 }

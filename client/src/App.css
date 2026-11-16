@@ -933,3 +933,28 @@ input::placeholder { color: #949387; }
   .public-message.is-continuation { padding-block:1px; }
   .public-message:has(+ .public-message.is-continuation) { margin-bottom:0 !important; }
 }
+
+/* Frase de abertura na tela de entrada. */
+@media (min-width:821px) { .account-story { justify-content:flex-end; gap:20px; } }
+.account-tagline { margin:0; max-width:480px; color:#fbe3dc; font-size:clamp(16px,1.6vw,20px); font-style:italic; font-weight:500; line-height:1.4; opacity:.92; }
+@media (max-width:820px) { .account-tagline { width:100%; margin:-4px 0 0; font-size:13px; } }
+
+/* Call: a foto de perfil fica sempre dentro da caixinha de quem está com a câmera desligada. */
+.leave-button-wrap { display:contents; }
+.media-thumbnails .tile-card { width:100%; max-width:440px; }
+.media-thumbnails .tile-video { width:100%; }
+.media-thumbnails .tile-video > .lk-participant-tile { width:100%; height:auto; max-height:none; aspect-ratio:16/10; }
+.media-thumbnails.compact-thumbnails .tile-card { max-width:240px; }
+.tile-profile-avatar { width:min(76px,45%); height:auto; aspect-ratio:1; top:46%; }
+.media-thumbnails .lk-participant-metadata { left:6px; right:6px; bottom:6px; }
+.media-thumbnails .lk-participant-metadata-item { max-width:100%; padding:2px 6px; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.media-thumbnails .lk-participant-metadata-item svg { width:14px; height:14px; }
+@media (max-width:767px) {
+  .media-thumbnails .tile-card { max-width:none; }
+  .tile-label { font-size:11px; line-height:1.35; }
+  .media-thumbnails .tile-card, .media-thumbnails .tile-video { min-width:0; }
+  .tile-profile-avatar { width:min(56px,40%); top:42%; border-width:2px; }
+  .media-thumbnails .lk-participant-metadata { left:4px; right:4px; bottom:4px; }
+  .media-thumbnails .lk-participant-metadata-item { padding:1px 5px; font-size:11px; }
+  .media-thumbnails .lk-participant-metadata-item svg { width:12px; height:12px; }
+}

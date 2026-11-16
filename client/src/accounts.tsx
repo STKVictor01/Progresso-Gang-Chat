@@ -15,7 +15,7 @@ const setupToken=link.get('setup')||'', inviteToken=link.get('invite')||'', reco
 if(setupToken||inviteToken||recoveryToken||link.has('access_token')||link.has('refresh_token'))history.replaceState(null,'',location.pathname+location.search);
 
 function EyeIcon({off}:{off:boolean}){return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.8"/>{off&&<path d="M4 4l16 16"/>}</svg>;}
-function AccountStory({site}:{site:{name:string;tagline:string}}){return <section className="account-story"><div className="account-hero"><svg className="account-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4l7.6 18.6L60 24.2 44.4 37.3 49.3 58 32 46.9 14.7 58l4.9-20.7L4 24.2l20.4-1.6Z" fill="currentColor"/></svg><h1>{site.name}</h1></div></section>;}
+function AccountStory({site}:{site:{name:string;tagline:string}}){return <section className="account-story"><div className="account-hero"><svg className="account-mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4l7.6 18.6L60 24.2 44.4 37.3 49.3 58 32 46.9 14.7 58l4.9-20.7L4 24.2l20.4-1.6Z" fill="currentColor"/></svg><h1>{site.name}</h1></div><p className="account-tagline">Jamais poderão deter a chegada da primavera</p></section>;}
 export function AccountGate({children}:{children:ReactNode}){
   const [user,setUser]=useState<User|null>(null),[ready,setReady]=useState(false),[pending,setPending]=useState(false);
   const [authMode,setAuthMode]=useState<'local'|'supabase'>('local');

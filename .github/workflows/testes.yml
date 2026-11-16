@@ -47,3 +47,5 @@ jobs:
         working-directory: server
       - run: npm audit --omit=dev --audit-level=moderate
         working-directory: server
+      - name: Testar verificação da publicação automática
+        run: python3 -m unittest discover -s deploy -p 'test_auto_deploy.py'

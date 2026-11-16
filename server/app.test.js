@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { createApp as createRawApp } from './app.js';
 import { normalizeSoundboardWav } from './soundboard-audio.js';
@@ -21,6 +22,25 @@ test('produção exige PostgreSQL, CA e origens HTTPS seguras',()=>{
 });
 test('inicialização protegida não aceita criar conta em SQLite vazio',async()=>{
   await assert.rejects(createRawApp({...options,dbPath:':memory:',requireExistingOwner:true}),/Produção exige o banco existente/);
+});
+test('inicialização sem limpeza preserva sessões e anexos antigos',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'gang-startup-')),dbPath=join(dir,'chat.sqlite');
+  try{
+    const first=await createRawApp({...options,dbPath});await first.close();
+    const db=new DatabaseSync(dbPath);
+    const owner=db.prepare('SELECT id FROM users WHERE is_owner=1').get().id;
+    db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run('old',owner,'csrf',1);
+    db.prepare('INSERT INTO attachments(id,request_hash,mime,width,height,size,animated,data,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run('old','hash','image/png',1,1,1,0,Buffer.from([0]),1);
+    db.close();
+    const preserved=await createRawApp({...options,dbPath,startupCleanup:false});await preserved.close();
+    const check=new DatabaseSync(dbPath);
+    assert.equal(check.prepare('SELECT count(*) AS n FROM sessions').get().n,1);
+    assert.equal(check.prepare('SELECT count(*) AS n FROM attachments').get().n,1);check.close();
+    const cleaned=await createRawApp({...options,dbPath});await cleaned.close();
+    const after=new DatabaseSync(dbPath);
+    assert.equal(after.prepare('SELECT count(*) AS n FROM sessions').get().n,0);
+    assert.equal(after.prepare('SELECT count(*) AS n FROM attachments').get().n,0);after.close();
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 test('tentativas distribuídas para a mesma conta também são limitadas',async()=>{
   const app=await createRawApp({...options,dbPath:':memory:'});

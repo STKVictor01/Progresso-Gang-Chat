@@ -33,7 +33,7 @@ function uploadName(value) {
 function dispositionName(name) {
   return encodeURIComponent(name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
 }
-export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
+export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
   if(requireExistingOwner) {
@@ -78,7 +78,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     return messages.map(message=>{const reply=byId.get(message.reply_to_id);return {...message,reply:reply?(reply.deleted_at?{id:reply.id,deleted:true}:{id:reply.id,name:reply.name,text:reply.text,user_id:reply.user_id,deleted:false}):null,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]};});
   }
   const cleanAbandoned = async () => (await db.prepare('DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)').run(Date.now()-86400000));
-  await cleanAbandoned();
+  if (startupCleanup) await cleanAbandoned();
   const app = Fastify({ logger, bodyLimit: 16384, trustProxy });
   const activity=createActivityLog(activityLogPath);
   app.addHook('onReady',async()=>activity.record('server-start'));
@@ -87,7 +87,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   app.addContentTypeParser('application/octet-stream', { parseAs:'buffer', bodyLimit:MAX_GENERAL_UPLOAD_BYTES }, (_request,body,done)=>done(null,body));
   app.addHook('onClose', async () => db.close());
   await app.register(cors, { origin: allowedOrigins });
-  const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady,recordEvent:activity.record,authProvider});
+  const accounts = await installAccounts(app,db,{ownerSetupToken,ownerSetupExpiresAt,secureCookies,allowedOrigins,onOwnerReady,recordEvent:activity.record,authProvider,startupCleanup});
   installMusic(app, {accounts, roomService, apiKey, apiSecret, serverUrl:internalServerUrl, maxConcurrentRooms:musicMaxRooms});
   if (db.kind==='sqlite') {
   const columns = (await db.prepare('PRAGMA table_info(messages)').all());

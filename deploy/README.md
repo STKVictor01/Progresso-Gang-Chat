@@ -1,5 +1,15 @@
 # Preparação para VPS: Progresso Gang
 
+## Publicação automática pelo GitHub
+
+A VPS verifica a branch `main` a cada dois minutos. Uma versão só é publicada depois que as execuções de push dos fluxos `Testes do chat` e `Verificar segredos` para o mesmo commit terminam com sucesso. A VPS usa a API pública do GitHub e não depende de chave SSH guardada no GitHub. Apenas pessoas autorizadas a enviar mudanças à `main` devem ter acesso de escrita ao repositório.
+
+A API e o site são reconstruídos com imagens identificadas pelo commit; o LiveKit e os volumes não são recriados. Após a troca, a VPS verifica os três serviços, a API e o modo de autenticação. Se a verificação falhar, tenta restaurar as imagens anteriores. Uma interrupção no meio da troca bloqueia novas atualizações até revisão manual. Reiniciar a API em produção não elimina sessões expiradas nem anexos abandonados; a limpeza normal durante envios continua em vigor.
+
+Alterações em `supabase/migrations` ou `deploy/compose.yaml` interrompem a publicação automática para revisão, backup/restauração isolada e implantação manual. O código da automação é instalado separadamente em `/usr/local/lib/progresso-gang-auto-deploy`; modificá-lo no repositório não altera a cópia instalada até uma atualização administrativa revisada. A automação não faz migrações nem restaura o banco. Mudanças de código que dependam de novo esquema exigem atenção mesmo sem alteração nos arquivos de migração.
+
+Na VPS, consulte `systemctl status progresso-gang-auto-deploy.timer` e `journalctl -u progresso-gang-auto-deploy.service -n 100`. Preserve as imagens antigas e supervisione o espaço em disco; esta automação não as apaga. A atualização pode causar breve interrupção do site/API e não dispensa teste de voz com usuários reais.
+
 > Atualização de 16/11/2026: a aplicação foi publicada na VPS em `https://progressogang.tech`, com a API e o LiveKit saudáveis. O endereço de voz, o HTTPS, a proteção de origem e a indisponibilidade das portas internas foram verificados. O proprietário vinculou a conta e entrou no site; o histórico foi exibido. Após corrigir a consulta interna ao LiveKit, a ocupação voltou a aparecer, áudio e vídeo sintéticos funcionaram e o proprietário confirmou que ele e um amigo se ouviram e assistiram à transmissão. A recuperação de senha ainda precisa ser testada. A versão publicada foi preparada localmente, sem commit ou push.
 
 Os procedimentos abaixo descrevem a preparação anterior à publicação e continuam úteis para manutenção. O fluxo Windows/Tailscale continua separado. A conta, os canais, as mensagens, os anexos, as sessões e os sons continuam no PostgreSQL Supabase já existente; não rode `migrate-to-supabase.js` para esta mudança. A coluna `reply_to_id` e a tabela `auth_links` já foram confirmadas no banco ativo; não reaplique migrações automaticamente.

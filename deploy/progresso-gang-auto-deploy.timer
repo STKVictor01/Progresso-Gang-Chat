@@ -1,0 +1,10 @@
+[Unit]
+Description=Verifica atualizacoes do Progresso Gang no GitHub
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=progresso-gang-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

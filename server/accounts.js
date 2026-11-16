@@ -14,7 +14,7 @@ const validNewPassword = value => validPassword(value) && Buffer.byteLength(valu
 const passwordHash = value => argon2.hash(value, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUser = user => ({ id: user.id, name: user.username, role: user.role, owner: Boolean(user.is_owner) });
 
-export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpiresAt = Date.now()+86400000, secureCookies = true, allowedOrigins, onOwnerReady = () => {}, recordEvent = () => {}, authProvider }) {
+export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpiresAt = Date.now()+86400000, secureCookies = true, allowedOrigins, onOwnerReady = () => {}, recordEvent = () => {}, authProvider, startupCleanup = true }) {
   if (db.kind==='sqlite') (await db.exec(`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY, username TEXT NOT NULL, username_key TEXT NOT NULL UNIQUE,
     password_hash TEXT, role TEXT NOT NULL CHECK(role IN ('admin','member')),
@@ -36,7 +36,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     } else await db.prepare('SELECT user_id,auth_user_id FROM auth_links LIMIT 1').all();
   }
   if (ownerSetupToken && !(await db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get()).password_hash) (await db.prepare('INSERT INTO owner_setup VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at').run(digest(ownerSetupToken),ownerSetupExpiresAt));
-  (await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now()));
+  if (startupCleanup) (await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now()));
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   const limited = { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } };

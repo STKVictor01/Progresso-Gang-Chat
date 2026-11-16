@@ -24,6 +24,7 @@ const app = await createApp({
   allowedOrigins: runtime.allowedOrigins,
   trustProxy: runtime.trustProxy,
   requireExistingOwner: process.env.NODE_ENV==='production',
+  startupCleanup: process.env.NODE_ENV!=='production',
   musicMaxRooms: runtime.musicMaxRooms,
   authProvider: runtime.supabaseAuth ? createSupabaseAuth(runtime.supabaseAuth) : undefined,
   activityLogPath: fileURLToPath(new URL('./logs/activity.jsonl', import.meta.url)),

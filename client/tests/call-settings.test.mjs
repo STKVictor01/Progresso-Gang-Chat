@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { microphoneOptions, readNoisePreference, isListenerMuted, listenerId, listenerVolume, readVolumePreferences, toggleListenerMute } from '../src/call-settings.ts';
+import { microphoneOptions, readNoisePreference, isListenerMuted, listenerId, listenerVolume, outputDeviceRemoved, readVolumePreferences, toggleListenerMute } from '../src/call-settings.ts';
+
+test('saída só volta ao padrão quando um dispositivo conhecido é removido', () => {
+  const seen=new Set(['fone']);
+  assert.equal(outputDeviceRemoved('fone',seen,[{deviceId:'fone'}]),false);
+  assert.equal(outputDeviceRemoved('fone',seen,[{deviceId:'outro'}]),true);
+  assert.equal(outputDeviceRemoved('desconhecido',seen,[]),false);
+  assert.equal(outputDeviceRemoved('default',seen,[]),false);
+  assert.equal(outputDeviceRemoved(undefined,seen,[]),false);
+});
 
 test('volume salvo usa a conta estável em novas sessões e separa transmissões', () => {
   const user='12345678-1234-1234-1234-123456789abc';

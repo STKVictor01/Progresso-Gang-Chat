@@ -35,3 +35,7 @@ export function isNoiseSuppressionSupported() {
   return globalThis.isSecureContext === true && typeof AudioContext !== 'undefined'
     && typeof AudioWorkletNode !== 'undefined' && typeof WebAssembly !== 'undefined';
 }
+// Só considera uma saída removida depois de ela ter aparecido na lista desta sessão.
+export function outputDeviceRemoved(selected:string|undefined, seen:ReadonlySet<string>, devices:ReadonlyArray<{deviceId:string}>) {
+  return Boolean(selected && selected!=='default' && seen.has(selected) && !devices.some(device=>device.deviceId===selected));
+}

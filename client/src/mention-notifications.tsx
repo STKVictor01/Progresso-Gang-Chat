@@ -109,9 +109,10 @@ export function ActivityProvider({children}:{children:ReactNode}) {
 export function MentionNotifications({onOpen}: {onOpen: (channel:string)=>void}) {
   const {text,voice} = useAccount();
   const {notices,dismiss} = useActivity();
+  const [expanded,setExpanded] = useState(false);
   if(!notices.length)return null;
   return <div className="mention-notice" role="status">
-    <div className="mention-notice-head"><strong>Menções para você</strong><span className="mention-notice-count">{notices.length}</span><button type="button" className="mention-notice-close" onClick={dismiss} aria-label="Fechar aviso de menções">×</button></div>
-    <ul>{[...notices].reverse().map(item=>{const channelName=item.channel.startsWith('voice:') ? 'chat da call '+(voice.find(channel=>channel.id===item.channel.slice(6))?.name || '') : '#'+(text.find(channel=>channel.id===item.channel)?.name || 'chat');return <li key={item.channel+':'+item.id}><button type="button" onClick={()=>onOpen(item.channel)}><span className="mention-notice-who">{item.name}</span><span className="mention-notice-where">mencionou você em {channelName}</span></button></li>;})}</ul>
+    <div className="mention-notice-head"><button type="button" className="mention-notice-expand" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}><strong>Menções para você</strong><span className="mention-notice-count">{notices.length}</span><span aria-hidden="true">{expanded?'▴':'▾'}</span></button><button type="button" className="mention-notice-close" onClick={dismiss} aria-label="Fechar aviso de menções">×</button></div>
+    {expanded&&<ul>{[...notices].reverse().map(item=>{const channelName=item.channel.startsWith('voice:') ? 'chat da call '+(voice.find(channel=>channel.id===item.channel.slice(6))?.name || '') : '#'+(text.find(channel=>channel.id===item.channel)?.name || 'chat');return <li key={item.channel+':'+item.id}><button type="button" onClick={()=>onOpen(item.channel)}><span className="mention-notice-who">{item.name}</span><span className="mention-notice-where">mencionou você em {channelName}</span></button></li>;})}</ul>}
   </div>;
 }

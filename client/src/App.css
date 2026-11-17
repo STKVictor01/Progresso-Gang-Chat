@@ -825,7 +825,7 @@ input::placeholder { color: var(--muted); }
 .continuation-options { position:absolute; top:-6px; right:4px; opacity:0; }
 .public-message.is-continuation:hover .continuation-options, .public-message.is-continuation:focus-within .continuation-options { opacity:1; }
 @media (pointer:coarse) { .continuation-options { opacity:.55; top:-4px; } }
-.continuation-options .message-options-trigger { background:var(--raised); border:1px solid var(--line); }
+.continuation-options .message-options-trigger { background:transparent; border:0; }
 
 /* ==========================================================================
    Biblioteca de GIFs.
@@ -947,7 +947,6 @@ input::placeholder { color: var(--muted); }
 .message-failed { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; margin-top:4px; color:var(--rose); font-size:12px; }
 .message-failed button { min-height:32px; padding:0; border:0; background:transparent; color:var(--rose); font-size:12px; font-weight:600; text-decoration:underline; text-underline-offset:3px; }
 @media (pointer:coarse) {
-  .public-message .message-options-trigger, .continuation-options { display:none !important; }
   .public-message { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   .public-message:hover { background:transparent; }
   .public-message.menu-open { background:var(--panel); }
@@ -957,6 +956,11 @@ input::placeholder { color: var(--muted); }
   .message-menu-preview strong { font-size:13px; }
   .message-menu-preview span { color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .message-options-popover.message-menu button { min-height:50px; padding:12px 8px; font-size:16px; }
+}
+@media (max-width:767px), (pointer:coarse) {
+  .public-message header .message-options-trigger { opacity:1; width:44px; height:44px; flex-shrink:0; }
+  .continuation-options { position:static; float:right; opacity:1; margin-left:8px; }
+  .continuation-options .message-options-trigger { width:44px; height:44px; }
 }
 @media (max-width:767px) {
   .public-message.is-continuation { padding-block:1px; }
@@ -1290,12 +1294,18 @@ input::placeholder { color: var(--muted); }
 .progresso-app .voice-dock-label .leave-button:hover { background:color-mix(in srgb,var(--danger) 42%,var(--surface)); border-color:var(--danger); }
 .voice-dock .call-controls { justify-content:center; gap:10px; padding:10px 16px max(12px,env(safe-area-inset-bottom)); border-top:0; background:transparent; }
 .control-group { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:4px; background:var(--bg-2); border:1px solid var(--line-soft); border-radius:var(--radius); }
+.call-more-toggle { display:none; }
 .call-controls .lk-button, .call-controls .button { border-radius:var(--radius-sm); background:var(--raised); border-color:var(--line); }
 .call-controls .lk-button:hover, .call-controls .button:hover:not(:disabled) { background:var(--raised-hover); }
 .call-controls .lk-button[data-lk-enabled=true], .call-controls .button[aria-pressed=true], .call-controls .button[aria-expanded=true] { color:var(--text); background:var(--accent-soft); border-color:var(--terracotta); }
 .call-controls .deafen-toggle[aria-pressed=true] { color:var(--danger); background:var(--danger-soft); border-color:var(--danger-line); }
 .call-controls .output-toggle[aria-disabled=true] { opacity:.55; }
 .call-controls .output-control .lk-button { border-radius:var(--radius-sm); }
+.output-control { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.output-select { display:flex; align-items:center; gap:6px; min-height:44px; padding:0 8px; color:var(--text); background:var(--raised); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.output-select select { width:clamp(110px,12vw,180px); max-width:42vw; min-height:42px; color:var(--text); background:transparent; border:0; font:inherit; font-size:var(--font-xs); }
+.output-select select:focus-visible { outline:2px solid var(--rose); outline-offset:1px; }
+.output-status { max-width:200px; color:var(--text-2); font-size:var(--font-xs); line-height:1.3; }
 
 /* ---------- Música: tocando agora e fila em lista ---------- */
 .music-dialog { width:min(580px,calc(100vw - 24px)); }
@@ -1307,6 +1317,10 @@ input::placeholder { color: var(--muted); }
 .music-now-panel-copy strong { overflow:hidden; font-size:var(--font-md); text-overflow:ellipsis; white-space:nowrap; }
 .music-now-panel-copy span { overflow:hidden; color:var(--text-2); font-size:var(--font-sm); text-overflow:ellipsis; white-space:nowrap; }
 .music-now-panel-actions { display:flex; gap:6px; }
+.music-bot-volume { position:relative; display:flex; align-items:center; min-height:52px; margin-top:10px; padding:8px 58px 8px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); }
+.music-bot-volume span { display:flex; flex-direction:column; font-size:var(--font-sm); }
+.music-bot-volume small { color:var(--text-2); font-size:var(--font-xs); }
+.music-bot-volume .participant-audio-button { top:50%; bottom:auto; transform:translateY(-50%); }
 .music-dialog form.music-search { flex-direction:row; align-items:flex-end; gap:10px; margin-top:18px; }
 .music-search label { flex:1; }
 .playlist { margin-top:16px; border-top:1px solid var(--line); }
@@ -1364,6 +1378,17 @@ input::placeholder { color: var(--muted); }
   .offline-member { min-height:44px; }
 }
 @media (prefers-reduced-motion:reduce) { .community-shell > .community-sidebar { transition:none; } .offline-members > summary::after { transition:none; } }
+@media (max-width:767px) {
+  .voice-dock .call-more-toggle { display:inline-flex; min-width:100px; align-items:center; justify-content:center; }
+  .voice-dock:has(.mobile-controls-expanded) { max-height:50dvh; }
+  .voice-dock .mobile-controls-expanded .control-group[aria-label="Recursos"] { display:grid; grid-template-columns:repeat(6,minmax(44px,1fr)); width:100%; gap:4px; }
+  .output-select select { width:155px; max-width:55vw; }
+  .call-controls:not(.mobile-controls-expanded) .control-group[aria-label="Transmissão"],
+  .call-controls:not(.mobile-controls-expanded) .control-group[aria-label="Recursos"],
+  .call-controls:not(.mobile-controls-expanded) .output-control,
+  .call-controls:not(.mobile-controls-expanded) .output-toggle,
+  .call-controls:not(.mobile-controls-expanded) .control-group[aria-label="Comunicação"] .lk-button-menu { display:none; }
+}
 /* Sem banner, o texto do mini card dispensa a camada de contraste. */
 .profile-mini:not(:has(.profile-mini-banner)) .profile-mini-copy { padding-inline:0; background:transparent; }
 /* No celular, o login fica só com a faixa do topo para não disputar com o nome. */
@@ -1554,6 +1579,7 @@ input::placeholder { color: var(--muted); }
   .profile-editor > header { padding:16px 16px 12px; }
   .profile-editor > header::after { left:16px; }
   .profile-editor > header h2 { font-size:22px; }
+  .admin-dialog input:not([type=color]):not([type=range]):not([type=checkbox]), .admin-dialog textarea, .admin-dialog select { font-size:16px; }
   .profile-editor-body { gap:18px; padding:16px 16px 24px; }
   .profile-editor-grid { gap:18px; }
   .profile-field-group, .profile-colors-section, .entry-sound-editor { padding:14px; }
@@ -1577,14 +1603,15 @@ input::placeholder { color: var(--muted); }
 /* ---------- Aviso de menções ---------- */
 .mention-notice { display:flex; flex-direction:column; align-items:stretch; gap:6px; width:min(340px,calc(100vw - 24px)); max-width:none; max-height:min(50dvh,380px); padding:12px 12px 8px; overflow:hidden; color:var(--text); background:color-mix(in srgb,var(--panel) 88%,transparent); -webkit-backdrop-filter:blur(14px) saturate(1.2); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--line); border-radius:12px; box-shadow:0 14px 40px #0008; }
 .mention-notice-head { flex-shrink:0; display:flex; align-items:center; gap:8px; padding:0 0 6px 4px; }
+.mention-notice-expand { display:flex; flex:1; align-items:center; gap:8px; min-height:44px; padding:0; color:var(--text); background:transparent; border:0; text-align:left; cursor:pointer; }
 .mention-notice-head strong { font-size:var(--font-md); font-weight:700; }
 .mention-notice-count { display:grid; place-items:center; min-width:22px; height:22px; padding:0 6px; color:#fff; font-size:var(--font-xs); font-weight:700; background:var(--accent); border-radius:999px; }
-.mention-notice-close { display:grid; place-items:center; width:36px; height:36px; margin-left:auto; padding:0; color:var(--text-2); font-size:22px; line-height:1; background:transparent; border:0; border-radius:50%; cursor:pointer; }
+.mention-notice-close { display:grid; place-items:center; width:44px; height:44px; margin-left:auto; padding:0; color:var(--text-2); font-size:22px; line-height:1; background:transparent; border:0; border-radius:50%; cursor:pointer; }
 .mention-notice-close:hover { color:var(--text); background:var(--raised); }
-.mention-notice-close:focus-visible, .mention-notice li button:focus-visible { outline:2px solid var(--rose); outline-offset:1px; }
+.mention-notice-close:focus-visible, .mention-notice-expand:focus-visible, .mention-notice li button:focus-visible { outline:2px solid var(--rose); outline-offset:1px; }
 .mention-notice ul { display:flex; flex-direction:column; gap:2px; min-height:0; margin:0; padding:0; overflow-y:auto; overscroll-behavior:contain; list-style:none; }
 .mention-notice li button { display:flex; flex-direction:column; align-items:flex-start; gap:1px; width:100%; min-height:48px; padding:7px 10px; color:var(--text); text-align:left; text-decoration:none; background:transparent; border:0; border-left:3px solid var(--terracotta); border-radius:6px; cursor:pointer; }
 .mention-notice li button:hover { background:var(--raised); }
 .mention-notice-who { font-size:var(--font-sm); font-weight:600; }
 .mention-notice-where { color:var(--text-2); font-size:var(--font-xs); }
-@media (max-width:767px) { .mention-notice { left:12px; right:12px; width:auto; top:max(10px,env(safe-area-inset-top)); } }
+@media (max-width:767px) { .mention-notice { left:auto; right:12px; width:min(300px,calc(100vw - 24px)); max-height:min(38dvh,300px); top:calc(64px + env(safe-area-inset-top)); } }

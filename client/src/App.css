@@ -1471,20 +1471,18 @@ input::placeholder { color: var(--muted); }
 .entry-sound-actions { justify-content:flex-end; }
 .profile-editor label.button { cursor:pointer; }
 
-/* ---------- Cartões de membros (computador) ----------
-   Uma unidade só: banner integrado, gradiente de contraste e texto sem caixa opaca. */
-@media (min-width:768px) {
-  .online-profile-button.profile-mini { display:flex; align-items:center; gap:10px; width:100%; min-height:56px; max-height:72px; padding:8px 10px; overflow:hidden; }
-  .online-profile-button.profile-mini .online-avatar { flex-shrink:0; }
-  .online-profile-button.profile-mini .profile-mini-copy { flex:1 1 auto; min-width:0; max-width:none; padding:0; background:none; border-radius:0; text-shadow:0 1px 2px color-mix(in srgb,var(--pf-primary) 85%,transparent); }
-  .online-profile-button.profile-mini .profile-mini-name { display:flex; align-items:center; gap:4px; min-width:0; font-size:var(--font-sm); font-weight:600; line-height:1.3; }
-  .online-profile-button.profile-mini .profile-mini-name > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .online-profile-button.profile-mini .profile-mini-name .founder-badge.compact { flex-shrink:0; margin-left:2px; text-shadow:none; }
-  .online-profile-button.profile-mini .profile-mini-copy small { display:block; margin-top:2px; overflow:hidden; font-size:var(--font-xs); line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
-  .online-profile-button.profile-mini .profile-mini-banner { overflow:hidden; }
-  .online-profile-button.profile-mini .profile-mini-banner::after { background:linear-gradient(90deg,var(--pf-primary) 0%,color-mix(in srgb,var(--pf-primary) 92%,transparent) 50%,color-mix(in srgb,var(--pf-primary) 55%,transparent) 100%); }
-  .online-profile-button.profile-mini.is-preview { cursor:default; }
-}
+/* ---------- Cartões de membros (computador e celular) ----------
+   Uma unidade só: banner translúcido, gradiente leve e texto sem caixa opaca. */
+.online-profile-button.profile-mini { display:flex; align-items:center; gap:10px; width:100%; min-height:56px; max-height:72px; padding:8px 10px; overflow:hidden; }
+.online-profile-button.profile-mini .online-avatar { flex-shrink:0; }
+.online-profile-button.profile-mini .profile-mini-copy { flex:1 1 auto; min-width:0; max-width:none; padding:0; background:none; border-radius:0; text-shadow:0 1px 2px var(--pf-primary),0 0 8px color-mix(in srgb,var(--pf-primary) 80%,transparent); }
+.online-profile-button.profile-mini .profile-mini-name { display:flex; align-items:center; gap:4px; min-width:0; font-size:var(--font-sm); font-weight:600; line-height:1.3; }
+.online-profile-button.profile-mini .profile-mini-name > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.online-profile-button.profile-mini .profile-mini-name .founder-badge.compact { flex-shrink:0; margin-left:2px; text-shadow:none; }
+.online-profile-button.profile-mini .profile-mini-copy small { display:block; margin-top:2px; overflow:hidden; font-size:var(--font-xs); line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.online-profile-button.profile-mini .profile-mini-banner { overflow:hidden; }
+.online-profile-button.profile-mini .profile-mini-banner::after { background:linear-gradient(90deg,color-mix(in srgb,var(--pf-primary) 82%,transparent) 0%,color-mix(in srgb,var(--pf-primary) 50%,transparent) 45%,color-mix(in srgb,var(--pf-primary) 12%,transparent) 100%); }
+.online-profile-button.profile-mini.is-preview { cursor:default; }
 
 /* ---------- Login normal no computador (≥901px): cartaz construtivista ----------
    O celular e os demais estados (convite, ativação, recuperação) mantêm o visual anterior. */
@@ -1549,3 +1547,44 @@ input::placeholder { color: var(--muted); }
   .account-page.is-login .account-links .button:hover:not(:disabled) { color:var(--pc-cream); text-decoration:underline; text-decoration-color:var(--pc-gold); text-underline-offset:4px; background:transparent; }
   .account-page.is-login .account-panel .account-note { margin-top:30px; padding-top:20px; color:var(--pc-muted); font-size:12px; border-top:1px solid var(--pc-line); }
 }
+
+/* ---------- Editor de perfil no celular: mesma estrutura do computador, em folha de tela cheia ---------- */
+@media (max-width:767px) {
+  .admin-dialog.profile-editor { width:100vw; max-width:100vw; max-height:94dvh; margin:auto 0 0; padding:0; border-radius:16px 16px 0 0; }
+  .profile-editor > header { padding:16px 16px 12px; }
+  .profile-editor > header::after { left:16px; }
+  .profile-editor > header h2 { font-size:22px; }
+  .profile-editor-body { gap:18px; padding:16px 16px 24px; }
+  .profile-editor-grid { gap:18px; }
+  .profile-field-group, .profile-colors-section, .entry-sound-editor { padding:14px; }
+  .profile-preview-head { flex-direction:column; align-items:stretch; }
+  .preview-switch { display:grid; grid-template-columns:1fr 1fr; }
+  .preview-switch button { min-height:40px; }
+  .member-card-preview-stage { width:100%; }
+  .profile-editor .name-color-inputs { flex-wrap:wrap; }
+  .profile-editor .name-color-inputs input:not([type=color]) { flex:1 1 120px; min-width:0; }
+  .profile-editor-footer { flex-wrap:wrap; gap:8px; padding:12px 16px max(12px,env(safe-area-inset-bottom)); }
+  .profile-editor-status { flex-basis:100%; }
+  .profile-editor-status:empty { display:none; }
+  .profile-editor-footer .button { flex:1 1 0; min-height:48px; }
+  .entry-sound-actions { justify-content:stretch; }
+  .entry-sound-actions .button { flex:1 1 auto; }
+  .popover-menu-item { min-height:48px; }
+  /* Os campos de arquivo ocultos ficam presos dentro da área, sem criar rolagem lateral. */
+  .profile-editor-preview input.sr-only { top:0; left:0; }
+}
+
+/* ---------- Aviso de menções ---------- */
+.mention-notice { display:flex; flex-direction:column; align-items:stretch; gap:6px; width:min(340px,calc(100vw - 24px)); max-width:none; max-height:min(50dvh,380px); padding:12px 12px 8px; overflow:hidden; color:var(--text); background:color-mix(in srgb,var(--panel) 88%,transparent); -webkit-backdrop-filter:blur(14px) saturate(1.2); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--line); border-radius:12px; box-shadow:0 14px 40px #0008; }
+.mention-notice-head { flex-shrink:0; display:flex; align-items:center; gap:8px; padding:0 0 6px 4px; }
+.mention-notice-head strong { font-size:var(--font-md); font-weight:700; }
+.mention-notice-count { display:grid; place-items:center; min-width:22px; height:22px; padding:0 6px; color:#fff; font-size:var(--font-xs); font-weight:700; background:var(--accent); border-radius:999px; }
+.mention-notice-close { display:grid; place-items:center; width:36px; height:36px; margin-left:auto; padding:0; color:var(--text-2); font-size:22px; line-height:1; background:transparent; border:0; border-radius:50%; cursor:pointer; }
+.mention-notice-close:hover { color:var(--text); background:var(--raised); }
+.mention-notice-close:focus-visible, .mention-notice li button:focus-visible { outline:2px solid var(--rose); outline-offset:1px; }
+.mention-notice ul { display:flex; flex-direction:column; gap:2px; min-height:0; margin:0; padding:0; overflow-y:auto; overscroll-behavior:contain; list-style:none; }
+.mention-notice li button { display:flex; flex-direction:column; align-items:flex-start; gap:1px; width:100%; min-height:48px; padding:7px 10px; color:var(--text); text-align:left; text-decoration:none; background:transparent; border:0; border-left:3px solid var(--terracotta); border-radius:6px; cursor:pointer; }
+.mention-notice li button:hover { background:var(--raised); }
+.mention-notice-who { font-size:var(--font-sm); font-weight:600; }
+.mention-notice-where { color:var(--text-2); font-size:var(--font-xs); }
+@media (max-width:767px) { .mention-notice { left:12px; right:12px; width:auto; top:max(10px,env(safe-area-inset-top)); } }

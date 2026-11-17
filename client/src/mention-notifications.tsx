@@ -110,5 +110,8 @@ export function MentionNotifications({onOpen}: {onOpen: (channel:string)=>void})
   const {text,voice} = useAccount();
   const {notices,dismiss} = useActivity();
   if(!notices.length)return null;
-  return <div className="mention-notice" role="status"><div><strong>Menções para você ({notices.length})</strong><ul>{[...notices].reverse().map(item=>{const channelName=item.channel.startsWith('voice:') ? 'chat da call '+(voice.find(channel=>channel.id===item.channel.slice(6))?.name || '') : '#'+(text.find(channel=>channel.id===item.channel)?.name || 'chat');return <li key={item.channel+':'+item.id}><button type="button" onClick={()=>onOpen(item.channel)}>{item.name} · {channelName}</button></li>;})}</ul></div><button className="button subtle" onClick={dismiss} aria-label="Fechar aviso de menções">×</button></div>;
+  return <div className="mention-notice" role="status">
+    <div className="mention-notice-head"><strong>Menções para você</strong><span className="mention-notice-count">{notices.length}</span><button type="button" className="mention-notice-close" onClick={dismiss} aria-label="Fechar aviso de menções">×</button></div>
+    <ul>{[...notices].reverse().map(item=>{const channelName=item.channel.startsWith('voice:') ? 'chat da call '+(voice.find(channel=>channel.id===item.channel.slice(6))?.name || '') : '#'+(text.find(channel=>channel.id===item.channel)?.name || 'chat');return <li key={item.channel+':'+item.id}><button type="button" onClick={()=>onOpen(item.channel)}><span className="mention-notice-who">{item.name}</span><span className="mention-notice-where">mencionou você em {channelName}</span></button></li>;})}</ul>
+  </div>;
 }

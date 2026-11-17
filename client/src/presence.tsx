@@ -3,12 +3,11 @@ import type { FormEvent, ReactNode } from 'react';
 import { api, jsonApi } from './api';
 import { AdminPanel, PasswordPanel, SettingsPanel, useAccount } from './accounts';
 import { normalizeHexColor, readableNameColor } from './chat-format';
-import { convertAudio } from './audio-file';
 import { bannerPalette, ProfileAvatar, ProfileCard, ProfileMiniCard } from './profile-card';
 import type { ProfileData } from './profile-card';
-import { AppearanceColors, AppearanceSettings, BannerControls, prepareBanner } from './profile-appearance-editor';
+import { AppearanceColors, BannerControls, prepareBanner } from './profile-appearance-editor';
 import { EntrySoundEditor } from './entry-sound';
-import { MenuButton, useIsDesktop } from './menu';
+import { MenuButton } from './menu';
 import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
 import type { BannerCrop, ProfilePalette } from './profile-appearance';
 
@@ -79,25 +78,6 @@ function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUr
 function GearIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>;
 }
-function EntrySoundSettings() {
-  const {user}=useAccount();
-  const [configured,setConfigured]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
-  const [file,setFile]=useState<File|null>(null),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
-  useEffect(()=>{let active=true;jsonApi('/api/voice-entry').then(data=>{if(active)setConfigured(data.configured===true);}).catch(()=>{if(active)setMessage('Não foi possível carregar seu som de entrada.');}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[]);
-  async function save(event:FormEvent) {
-    event.preventDefault();if(!file||busy)return;setBusy(true);setMessage('');
-    try {
-      const wav=await convertAudio(file);
-      const response=await api('/api/voice-entry',{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:wav});
-      if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.error||'Não foi possível salvar o som.');}
-      setConfigured(true);setFile(null);setRevision(Date.now());setMessage('Som de entrada salvo.');
-    }catch(cause){setMessage(cause instanceof Error?cause.message:'Não foi possível ler o áudio.');}finally{setBusy(false);}
-  }
-  async function remove() {
-    setBusy(true);setMessage('');try{await jsonApi('/api/voice-entry','DELETE');setConfigured(false);setMessage('Som removido. O som padrão será usado.');}catch{setMessage('Não foi possível remover o som.');}finally{setBusy(false);}
-  }
-  return <section className="profile-account entry-sound-settings" aria-labelledby="entry-sound-title"><h3 id="entry-sound-title">Som de entrada na call</h3><p>As pessoas na call ouvirão seu som quando você entrar. Até 10 segundos e 8 MB.</p>{loading?<p role="status">Carregando…</p>:<><form onSubmit={save}><label>Escolher áudio<input key={revision} type="file" accept="audio/*" onChange={event=>setFile(event.target.files?.[0]||null)} disabled={busy}/></label><button className="button subtle" disabled={busy||!file}>{busy?'Salvando…':'Salvar som de entrada'}</button></form>{configured&&<div className="entry-sound-preview"><audio controls preload="metadata" src={'/api/voice-entry/'+user.id+'?v='+revision} aria-label="Ouvir seu som de entrada"/><button type="button" className="button subtle" disabled={busy} onClick={()=>void remove()}>Usar som padrão</button></div>}</>}{message&&<p role="status">{message}</p>}</section>;
-}
 // Referência do que está salvo, para saber se há alterações pendentes.
 type Baseline = {name:string;status:string;description:string;color:string;crop:BannerCrop;mode:'auto'|'custom';custom:string};
 const IMAGE_TYPES = /^image\/(png|jpeg|webp|gif)$/;
@@ -108,7 +88,6 @@ function PencilIcon() {
 export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'card'|'avatar'}) {
   const {user,renameSelf,authMode,logout} = useAccount();
   const {profiles,refresh,nameColors,statuses,appearance} = usePresence();
-  const desktop = useIsDesktop();
   const [statusText,setStatusText] = useState('');
   const [editing,setEditing] = useState(false);
   const [color,setColor] = useState('');
@@ -172,7 +151,7 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
     event?.preventDefault();
     if (saving) return;
     if (colorProblem) { setError(colorProblem); return; }
-    if (desktop && (!dirty || invalid)) return;
+    if (!dirty || invalid) return;
     setSaving(true); setError(''); setMessage('');
     let renamed = false;
     try {
@@ -199,7 +178,7 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
       await jsonApi('/api/profile','PATCH',{description,avatarId,...(nameColors?{nameColor:chosenColor}:{}),...(statuses?{status:statusText}:{}),...(appearance?{bannerId,bannerCrop:crop,appearanceMode:mode,customColors:custom?paletteToTriple(custom):null,autoPalette}:{})});
       setBaseline({name:trimmedName,status:statusText.trim(),description,color:chosenColor ?? '',crop,mode,custom:custom ? paletteToTriple(custom).join() : ''});
       setFile(null); setPreview(null); setRemoveAvatar(false); setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setNewPalette(null); setBannerEditing(false);
-      setMessage(desktop ? 'Alterações salvas.' : 'Perfil salvo.');
+      setMessage('Alterações salvas.');
       try { await refresh(); } catch { setMessage('Alterações salvas. A lista de membros será atualizada em instantes.'); }
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : 'Tente novamente.';
@@ -221,8 +200,6 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const shown = {name:name.trim() || user.name, avatarUrl:removeAvatar ? null : preview || me.avatarUrl};
   const shownBanner = removeBanner ? null : bannerPreview || own?.bannerUrl || null;
   const previewProfile:ProfileData = {...(own ?? {id:user.id,description:''}), name:shown.name, avatarUrl:shown.avatarUrl, nameColor:chosenColor && !colorProblem ? chosenColor : null, status:statusText.trim(), description, bannerUrl:shownBanner, bannerCrop:crop, appearanceMode:mode, customColors:custom ? paletteToTriple(custom) : null, autoPalette:bannerFile || removeBanner ? null : own?.autoPalette ?? null};
-  const savedCrop = validCrop(own?.bannerCrop), savedCustom = own?.customColors?.join() ?? '';
-  const appearanceChanged = Boolean(bannerFile) || removeBanner || crop.x!==savedCrop.x || crop.y!==savedCrop.y || crop.zoom!==savedCrop.zoom || mode!==(own?.appearanceMode==='custom' ? 'custom' : 'auto') || (custom ? paletteToTriple(custom).join() : '')!==savedCustom;
   const autoStatus = !shownBanner ? 'none' : bannerFile ? newPalette?.palette===undefined ? 'loading' : newPalette.palette ? 'ready' : 'failed' : 'ready';
   const accountPanels = <>
     {panel==='settings' && <SettingsPanel onClose={() => setPanel(null)} onPassword={() => setPanel('password')} onAdmin={() => setPanel('admin')}/>}
@@ -230,115 +207,64 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
     {panel==='admin' && <AdminPanel onClose={() => setPanel(null)}/>}
   </>;
   const trigger = variant==='avatar'
-    ? desktop
-      ? <><MenuButton label="Menu da conta" className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:open,disabled:!own},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/></MenuButton>
+    ? <><MenuButton label="Menu da conta" className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:open,disabled:!own},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/></MenuButton>
         {accountError && <div className="account-menu-error" role="alert"><span>{accountError}</span><button type="button" className="icon-button" onClick={() => setAccountError('')} aria-label="Fechar aviso">×</button></div>}</>
-      : <button className="header-avatar-button" disabled={!own} onClick={open} aria-label="Meu perfil e conta" title="Meu perfil e conta"><Avatar person={me}/></button>
-    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label={desktop ? 'Meu perfil' : 'Meu perfil e conta'}><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title={desktop ? 'Meu perfil' : 'Meu perfil e conta'}><GearIcon/></span></button>;
+    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label="Meu perfil"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil"><GearIcon/></span></button>;
 
-  if (desktop) {
-    const hasAvatar = Boolean(shown.avatarUrl), hasBanner = Boolean(shownBanner);
-    const editMenu = <MenuButton label="Editar foto e banner" className="profile-media-menu" items={[
-      {label:'Trocar foto ou GIF', onSelect:() => avatarInput.current?.click(), disabled:saving},
-      {label:'Remover foto', onSelect:() => { choose(null); setRemoveAvatar(Boolean(own?.avatarUrl)); }, hidden:!hasAvatar, disabled:saving},
-      {label:'Editar banner', onSelect:() => { setPreviewMode('card'); setBannerEditing(true); }, hidden:!appearance, disabled:saving},
-      {label:'Remover banner', onSelect:() => { chooseBanner(null); setRemoveBanner(Boolean(own?.bannerUrl)); setBannerEditing(false); }, hidden:!appearance || !hasBanner, disabled:saving},
-    ]}><PencilIcon/></MenuButton>;
-    return <>{trigger}
-      {editing && <dialog className="admin-dialog profile-settings profile-editor" ref={element => {if(element && !element.open)element.showModal();}} onCancel={event => { event.preventDefault(); requestClose(); }} aria-labelledby="profile-editor-title">
-        <header><h2 id="profile-editor-title">Meu perfil</h2><button type="button" className="button subtle profile-editor-close" onClick={requestClose} aria-label="Fechar editor de perfil">×</button></header>
-        <div className="profile-editor-body">
-          <div className="profile-editor-grid">
-            <form id="profile-edit-form" className="profile-editor-fields" onSubmit={event => void save(event)}>
-              <div className="profile-field-group">
-                <div className="profile-field"><label htmlFor="profile-name">Apelido</label><input id="profile-name" value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={32} required autoComplete="nickname" disabled={saving} aria-invalid={Boolean(nameProblem)} aria-describedby="profile-name-help"/><small id="profile-name-help" className={nameProblem && name ? 'field-help field-error' : 'field-help'}>{nameProblem && name ? nameProblem : authMode==='supabase' ? 'É como você aparece no chat. Seu e-mail de acesso continua o mesmo.' : 'É como você aparece no chat e também o usuário para entrar. A senha continua a mesma.'}</small></div>
-                {statuses && <div className="profile-field"><label htmlFor="profile-status">Status</label><input id="profile-status" value={statusText} onChange={event => setStatusText(event.target.value)} maxLength={60} placeholder="Ex.: jogando Valorant 🎮" enterKeyHint="done" disabled={saving} aria-describedby="profile-status-help"/><small id="profile-status-help" className="field-help">Aparece embaixo do seu nome para todo mundo. {statusText.length}/60</small></div>}
-                <div className="profile-field"><label htmlFor="profile-description">Descrição</label><textarea id="profile-description" maxLength={200} value={description} onChange={event => setDescription(event.target.value)} placeholder="Conta um pouco sobre você" disabled={saving} aria-describedby="profile-description-help"/><small id="profile-description-help" className="field-help">{description.length}/200</small></div>
-              </div>
-              {nameColors && <fieldset className="name-color-field">
-                <legend>Cor do nick</legend>
-                <div className="name-color-inputs">
-                  <input type="color" aria-label="Escolher cor do nick" value={chosenColor || '#eee8dc'} onChange={event => setColor(event.target.value)} disabled={saving}/>
-                  <input aria-label="Código da cor em hexadecimal" value={color} onChange={event => setColor(event.target.value)} placeholder="#FF8800" maxLength={7} spellCheck={false} autoCapitalize="off" autoComplete="off" disabled={saving} aria-invalid={Boolean(colorProblem)} aria-describedby="name-color-help"/>
-                  <button type="button" className="button subtle" onClick={() => setColor('')} disabled={saving || !color}>Sem cor</button>
-                </div>
-                <div className="name-color-swatches" role="group" aria-label="Sugestões de cor">{COLOR_SUGGESTIONS.map(value => <button type="button" key={value} style={{background:value}} aria-label={'Usar a cor '+value} aria-pressed={chosenColor===value} onClick={() => setColor(value)} disabled={saving}/>)}</div>
-                <small id="name-color-help" className={colorProblem ? 'field-help field-error' : 'field-help'}>{colorProblem || 'Toque no quadrado colorido ou digite o código, como #FF8800.'}</small>
-                <button type="button" className="button subtle name-color-check" onClick={() => setPreviewMode('member')} aria-pressed={previewMode==='member'}>Ver no cartão de membros</button>
-              </fieldset>}
-              {appearance && <section className="profile-colors-section" aria-label="Cores do perfil"><AppearanceColors mode={mode} setMode={setMode} custom={custom} setCustom={setCustom} hasBanner={hasBanner} autoStatus={autoStatus} disabled={saving}/></section>}
-            </form>
-            <aside className="profile-editor-preview" aria-labelledby="profile-preview-title">
-              <div className="profile-preview-head">
-                <h3 id="profile-preview-title">Prévia do perfil</h3>
-                <div className="preview-switch" role="group" aria-label="Tipo de prévia">
-                  <button type="button" aria-pressed={previewMode==='card'} onClick={() => setPreviewMode('card')}>Perfil completo</button>
-                  <button type="button" aria-pressed={previewMode==='member'} onClick={() => { setPreviewMode('member'); setBannerEditing(false); }}>Cartão de membros</button>
-                </div>
-              </div>
-              {previewMode==='card'
-                ? <ProfileCard profile={previewProfile} actions={editMenu} onBannerPan={bannerEditing && !saving ? setCrop : undefined}/>
-                : <div className="member-card-preview"><div className="member-card-preview-stage"><ProfileMiniCard profile={previewProfile} calls={[]} preview/></div><div className="member-card-preview-edit">{editMenu}</div><small className="field-help">Mesmo cartão, largura e cores da lista de membros.</small></div>}
-              {bannerEditing && previewMode==='card' && <BannerControls crop={crop} setCrop={setCrop} hasBanner={hasBanner} disabled={saving} onPickBanner={() => bannerInput.current?.click()} onDone={() => setBannerEditing(false)}/>}
-              <input ref={avatarInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) choose(next); event.target.value=''; }}/>
-              <input ref={bannerInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) chooseBanner(next); event.target.value=''; }}/>
-            </aside>
-          </div>
-          <EntrySoundEditor onPendingChange={setAudioPending}/>
-        </div>
-        <footer className="profile-editor-footer">
-          <div className="profile-editor-status" aria-live="polite">{error ? <p className="error-message" role="alert">{error}</p> : message && !dirty ? <p className="profile-saved">{message}</p> : dirty ? <p>Alterações não salvas.</p> : null}</div>
-          <button type="button" className="button subtle" onClick={requestClose} disabled={saving}>Cancelar</button>
-          <button type="submit" form="profile-edit-form" className="button primary" disabled={!dirty || invalid || saving}>{saving ? 'Salvando…' : 'Salvar alterações'}</button>
-        </footer>
-      </dialog>}
-      {accountPanels}
-    </>;
-  }
+  const hasAvatar = Boolean(shown.avatarUrl), hasBanner = Boolean(shownBanner);
+  const editMenu = <MenuButton label="Editar foto e banner" className="profile-media-menu" items={[
+    {label:'Trocar foto ou GIF', onSelect:() => avatarInput.current?.click(), disabled:saving},
+    {label:'Remover foto', onSelect:() => { choose(null); setRemoveAvatar(Boolean(own?.avatarUrl)); }, hidden:!hasAvatar, disabled:saving},
+    {label:'Editar banner', onSelect:() => { setPreviewMode('card'); setBannerEditing(true); }, hidden:!appearance, disabled:saving},
+    {label:'Remover banner', onSelect:() => { chooseBanner(null); setRemoveBanner(Boolean(own?.bannerUrl)); setBannerEditing(false); }, hidden:!appearance || !hasBanner, disabled:saving},
+  ]}><PencilIcon/></MenuButton>;
   return <>{trigger}
-    {editing && <dialog className="admin-dialog profile-settings" ref={element => {if(element && !element.open)element.showModal();}} onCancel={closeEditor} aria-label="Meu perfil">
-      <header><h2>Meu perfil</h2><button className="button subtle" onClick={closeEditor}>Fechar</button></header>
-      <form onSubmit={event => void save(event)}>
-        <div className="profile-preview">
-          <Avatar person={shown} className="member-avatar profile-preview-avatar"/>
-          <div className="profile-photo-actions">
-            <label className="button subtle profile-photo-pick">Trocar foto ou GIF<input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { const next = event.target.files?.[0]; if (next) choose(next); event.target.value=''; }} disabled={saving}/></label>
-            {(own?.avatarUrl || file) && <button type="button" className="button subtle" disabled={saving} onClick={() => { if (file) choose(null); else setRemoveAvatar(!removeAvatar); }}>{file ? 'Descartar nova foto' : removeAvatar ? 'Manter foto atual' : 'Remover foto'}</button>}
-            <small>PNG, JPG, WebP ou GIF, até 8 MB.</small>
-          </div>
+    {editing && <dialog className="admin-dialog profile-settings profile-editor" ref={element => {if(element && !element.open)element.showModal();}} onCancel={event => { event.preventDefault(); requestClose(); }} aria-labelledby="profile-editor-title">
+      <header><h2 id="profile-editor-title">Meu perfil</h2><button type="button" className="button subtle profile-editor-close" onClick={requestClose} aria-label="Fechar editor de perfil">×</button></header>
+      <div className="profile-editor-body">
+        <div className="profile-editor-grid">
+          <form id="profile-edit-form" className="profile-editor-fields" onSubmit={event => void save(event)}>
+            <div className="profile-field-group">
+              <div className="profile-field"><label htmlFor="profile-name">Apelido</label><input id="profile-name" value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={32} required autoComplete="nickname" disabled={saving} aria-invalid={Boolean(nameProblem)} aria-describedby="profile-name-help"/><small id="profile-name-help" className={nameProblem && name ? 'field-help field-error' : 'field-help'}>{nameProblem && name ? nameProblem : authMode==='supabase' ? 'É como você aparece no chat. Seu e-mail de acesso continua o mesmo.' : 'É como você aparece no chat e também o usuário para entrar. A senha continua a mesma.'}</small></div>
+              {statuses && <div className="profile-field"><label htmlFor="profile-status">Status</label><input id="profile-status" value={statusText} onChange={event => setStatusText(event.target.value)} maxLength={60} placeholder="Ex.: jogando Valorant 🎮" enterKeyHint="done" disabled={saving} aria-describedby="profile-status-help"/><small id="profile-status-help" className="field-help">Aparece embaixo do seu nome para todo mundo. {statusText.length}/60</small></div>}
+              <div className="profile-field"><label htmlFor="profile-description">Descrição</label><textarea id="profile-description" maxLength={200} value={description} onChange={event => setDescription(event.target.value)} placeholder="Conta um pouco sobre você" disabled={saving} aria-describedby="profile-description-help"/><small id="profile-description-help" className="field-help">{description.length}/200</small></div>
+            </div>
+            {nameColors && <fieldset className="name-color-field">
+              <legend>Cor do nick</legend>
+              <div className="name-color-inputs">
+                <input type="color" aria-label="Escolher cor do nick" value={chosenColor || '#eee8dc'} onChange={event => setColor(event.target.value)} disabled={saving}/>
+                <input aria-label="Código da cor em hexadecimal" value={color} onChange={event => setColor(event.target.value)} placeholder="#FF8800" maxLength={7} spellCheck={false} autoCapitalize="off" autoComplete="off" disabled={saving} aria-invalid={Boolean(colorProblem)} aria-describedby="name-color-help"/>
+                <button type="button" className="button subtle" onClick={() => setColor('')} disabled={saving || !color}>Sem cor</button>
+              </div>
+              <div className="name-color-swatches" role="group" aria-label="Sugestões de cor">{COLOR_SUGGESTIONS.map(value => <button type="button" key={value} style={{background:value}} aria-label={'Usar a cor '+value} aria-pressed={chosenColor===value} onClick={() => setColor(value)} disabled={saving}/>)}</div>
+              <small id="name-color-help" className={colorProblem ? 'field-help field-error' : 'field-help'}>{colorProblem || 'Toque no quadrado colorido ou digite o código, como #FF8800.'}</small>
+              <button type="button" className="button subtle name-color-check" onClick={() => { setPreviewMode('member'); document.querySelector('.profile-editor-preview')?.scrollIntoView({block:'nearest',behavior:'smooth'}); }} aria-pressed={previewMode==='member'}>Ver no cartão de membros</button>
+            </fieldset>}
+            {appearance && <section className="profile-colors-section" aria-label="Cores do perfil"><AppearanceColors mode={mode} setMode={setMode} custom={custom} setCustom={setCustom} hasBanner={hasBanner} autoStatus={autoStatus} disabled={saving}/></section>}
+          </form>
+          <aside className="profile-editor-preview" aria-labelledby="profile-preview-title">
+            <div className="profile-preview-head">
+              <h3 id="profile-preview-title">Prévia do perfil</h3>
+              <div className="preview-switch" role="group" aria-label="Tipo de prévia">
+                <button type="button" aria-pressed={previewMode==='card'} onClick={() => setPreviewMode('card')}>Perfil completo</button>
+                <button type="button" aria-pressed={previewMode==='member'} onClick={() => { setPreviewMode('member'); setBannerEditing(false); }}>Cartão de membros</button>
+              </div>
+            </div>
+            {previewMode==='card'
+              ? <ProfileCard profile={previewProfile} actions={editMenu} onBannerPan={bannerEditing && !saving ? setCrop : undefined}/>
+              : <div className="member-card-preview"><div className="member-card-preview-stage"><ProfileMiniCard profile={previewProfile} calls={[]} preview/></div><div className="member-card-preview-edit">{editMenu}</div><small className="field-help">Mesmo cartão, largura e cores da lista de membros.</small></div>}
+            {bannerEditing && previewMode==='card' && <BannerControls crop={crop} setCrop={setCrop} hasBanner={hasBanner} disabled={saving} onPickBanner={() => bannerInput.current?.click()} onDone={() => setBannerEditing(false)}/>}
+            <input ref={avatarInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) choose(next); event.target.value=''; }}/>
+            <input ref={bannerInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) chooseBanner(next); event.target.value=''; }}/>
+          </aside>
         </div>
-        {appearance && <AppearanceSettings preview={previewProfile} hasBanner={Boolean(shownBanner)} newBanner={Boolean(bannerFile)} removing={removeBanner} canRemove={Boolean(own?.bannerUrl)} disabled={saving} onPickBanner={chooseBanner} onToggleRemove={() => setRemoveBanner(!removeBanner)} crop={crop} setCrop={setCrop} mode={mode} setMode={setMode} custom={custom} setCustom={setCustom} autoStatus={autoStatus} onCancel={resetAppearance} changed={appearanceChanged}/>}
-        {statuses && <><label>Status<input value={statusText} onChange={event => setStatusText(event.target.value)} maxLength={60} placeholder="Ex.: jogando Valorant 🎮" enterKeyHint="done" disabled={saving}/></label>
-        <small className="field-help">Aparece embaixo do seu nome para todo mundo. {statusText.length}/60</small></>}
-        <label>Apelido<input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={32} required autoComplete="nickname" disabled={saving}/></label>
-        <small className="field-help">{authMode==='supabase' ? 'É como você aparece no chat. Seu e-mail de acesso continua o mesmo.' : 'É como você aparece no chat e também o usuário para entrar. A senha continua a mesma.'}</small>
-        {nameColors && <fieldset className="name-color-field">
-          <legend>Cor do nick</legend>
-          <div className="name-color-inputs">
-            <input type="color" aria-label="Escolher cor do nick" value={chosenColor || '#eee8dc'} onChange={event => setColor(event.target.value)} disabled={saving}/>
-            <input aria-label="Código da cor em hexadecimal" value={color} onChange={event => setColor(event.target.value)} placeholder="#FF8800" maxLength={7} spellCheck={false} autoCapitalize="off" autoComplete="off" disabled={saving} aria-invalid={Boolean(colorProblem)} aria-describedby="name-color-help"/>
-            <button type="button" className="button subtle" onClick={() => setColor('')} disabled={saving || !color}>Sem cor</button>
-          </div>
-          <div className="name-color-swatches" role="group" aria-label="Sugestões de cor">{COLOR_SUGGESTIONS.map(value => <button type="button" key={value} style={{background:value}} aria-label={'Usar a cor '+value} aria-pressed={chosenColor===value} onClick={() => setColor(value)} disabled={saving}/>)}</div>
-          <div className="name-color-preview" aria-hidden="true"><Avatar person={shown}/><span><strong style={chosenColor && !colorProblem ? {color:chosenColor} : undefined}>{shown.name}</strong><small>Assim seu nick aparece no chat</small></span></div>
-          <small id="name-color-help" className={colorProblem ? 'field-help field-error' : 'field-help'}>{colorProblem || 'Toque no quadrado colorido ou digite o código, como #FF8800.'}</small>
-        </fieldset>}
-        <label>Descrição<textarea maxLength={200} value={description} onChange={event => setDescription(event.target.value)} placeholder="Conta um pouco sobre você" disabled={saving}/></label>
-        <small className="field-help">{description.length}/200</small>
-        <button className="button primary" disabled={saving}>{saving?'Salvando…':'Salvar perfil'}</button>
-        {message && <p className="profile-saved" role="status">{message}</p>}
-        {error && <p className="error-message" role="alert">{error}</p>}
-      </form>
-      <EntrySoundSettings />
-      <section className="profile-account" aria-label="Conta">
-        <h3>Conta</h3>
-        <div className="profile-account-actions">
-          <button type="button" className="button subtle" onClick={() => {closeEditor(); setPanel('password');}}>Alterar senha</button>
-          {user.role==='admin' && <button type="button" className="button subtle" onClick={() => {closeEditor(); setPanel('admin');}}>Administrar comunidade</button>}
-          <button type="button" className="button subtle danger" onClick={() => void leave()}>Sair da conta</button>
-        </div>
-        {accountError && <p className="error-message" role="alert">{accountError}</p>}
-      </section>
+        <EntrySoundEditor onPendingChange={setAudioPending}/>
+      </div>
+      <footer className="profile-editor-footer">
+        <div className="profile-editor-status" aria-live="polite">{error ? <p className="error-message" role="alert">{error}</p> : message && !dirty ? <p className="profile-saved">{message}</p> : dirty ? <p>Alterações não salvas.</p> : null}</div>
+        <button type="button" className="button subtle" onClick={requestClose} disabled={saving}>Cancelar</button>
+        <button type="submit" form="profile-edit-form" className="button primary" disabled={!dirty || invalid || saving}>{saving ? 'Salvando…' : 'Salvar alterações'}</button>
+      </footer>
     </dialog>}
     {accountPanels}
   </>;

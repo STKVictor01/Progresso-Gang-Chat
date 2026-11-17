@@ -1,5 +1,5 @@
-import { loadRnnoise, RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor';
-import workletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
+import { loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+import workletUrl from './rnnoise-worklet.ts?worker&url';
 import wasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
 import simdUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 
@@ -28,8 +28,32 @@ export async function createRnnoiseNode(context: AudioContext) {
     modules.set(context, module);
   }
   const [wasmBinary] = await Promise.all([binary, module]);
-  const node = new RnnoiseWorkletNode(context, { wasmBinary, maxChannels: 1 });
-  node.channelCount = 1;
-  node.channelCountMode = 'explicit';
-  return node;
+  const node = new AudioWorkletNode(context, 'pg-rnnoise-vad', {
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+    channelCount: 1, channelCountMode: 'explicit', processorOptions: { wasmBinary },
+  });
+  let destroyed = false;
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    node.port.postMessage('destroy');
+    node.disconnect();
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const failed = () => reject(Error('Não foi possível iniciar a redução de ruído.'));
+      node.addEventListener('processorerror', failed, { once: true });
+      timer = setTimeout(failed, 10000);
+      node.port.onmessage = event => {
+        if (event.data === 'ready') {
+          node.removeEventListener('processorerror', failed);
+          resolve();
+        } else if (event.data === 'error') failed();
+        else if (event.data === 'destroyed') node.port.close();
+      };
+    });
+    return Object.assign(node, { destroy });
+  } catch (error) { destroy(); throw error; }
+  finally { clearTimeout(timer); }
 }

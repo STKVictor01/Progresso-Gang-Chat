@@ -5,7 +5,7 @@ import type { AppearanceSource, BannerCrop, ProfilePalette } from './profile-app
 
 export type ProfileData = AppearanceSource & {
   id:string; name:string; description:string; avatarUrl:string|null; nameColor?:string|null; status?:string;
-  bannerUrl?:string|null; bannerCrop?:BannerCrop; badges?:string[]; memberSince?:number|null;
+  bannerUrl?:string|null; bannerCrop?:BannerCrop; badges?:string[]; memberSince?:number|null; active?:boolean;
 };
 
 // Paleta do banner calculada uma vez por imagem (24 × 9 pixels bastam para as cores predominantes).

@@ -1,16 +1,77 @@
-:root { font-family: 'Inter Variable', 'Segoe UI', sans-serif; color: #eee8dc; background: #131412; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; color-scheme: dark; }
+/* ==========================================================================
+   Tokens do Progresso Gang (V8.1, pastel brutalista).
+   Todas as telas usam estas variáveis; evite cores soltas nos componentes.
+   ========================================================================== */
+:root {
+  /* Superfícies em grafite quente. */
+  --bg: #19171b;
+  --bg-2: #211e23;
+  --surface: #211e23;
+  --panel: #282329;
+  --raised: #342b32;
+  --raised-hover: #3d3239;
+  --line: #463c43;
+  --line-soft: #362f35;
+  --line-strong: #5f525a;
+  /* Texto. */
+  --text: #f0e8e4;
+  --text-2: #bfb1b5;
+  --muted: #ab9da2;
+  /* Cores da identidade. */
+  --accent: #a95b61;          /* vermelho pastel: seleção e ações principais */
+  --accent-hover: #b6686e;
+  --accent-soft: #3a2a31;     /* fundo de item selecionado */
+  --accent-line: #6c4950;
+  --terracotta: #cb8883;      /* detalhes geométricos e ícones ativos */
+  --rose: #d5a49c;            /* destaques secundários e foco */
+  --mauve: #b7a4b9;           /* destaques secundários */
+  /* Cores semânticas. */
+  --danger: #e2797d;
+  --danger-soft: #3f2629;
+  --danger-line: #7d4549;
+  --success: #8fc08a;
+  --warning: #e6bd7e;
+  --online: #7fbf7a;
+  --notify: #e0646b;
+  /* Logotipo oficial: cor original preservada. */
+  --brand-logo: #c6352c;
+  --brand-logo-ground: #211e23;
+  --brand-logo-star: #c6352c;
+  /* Nomes antigos continuam valendo, apontando para a nova paleta. */
+  --red: var(--accent);
+  --red-light: var(--terracotta);
+  --paper: var(--text);
+  --gold: var(--rose);
+  /* Forma, sombra e movimento. */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-soft: 0 4px 14px #0000004d;
+  --shadow: 0 14px 36px #00000066;
+  --overlay: #0b090cb8;
+  --ease: 200ms cubic-bezier(.2,.7,.2,1);
+  /* Escala tipográfica em rem (respeita o tamanho de fonte do navegador). */
+  --font-xs: .75rem;      /* 12px: metadados */
+  --font-sm: .8125rem;    /* 13px: botões, participantes */
+  --font-md: .875rem;     /* 14px: nomes, navegação */
+  --font-base: .9375rem;  /* 15px: mensagens */
+  --font-lg: 1.0625rem;   /* 17px: título do canal */
+  --font-brand: 1.3125rem;/* 21px: nome do site */
+
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif; color: var(--text); background: var(--bg); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; color-scheme: dark;
+}
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; background: var(--bg); }
 button, input { font: inherit; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
 button, a { touch-action: manipulation; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 a { color: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid #e6c48b; outline-offset: 4px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--rose); outline-offset: 3px; }
 button, a, input { transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease; }
 input { min-width: 0; }
 svg { flex-shrink: 0; }
-::selection { color: #fff; background: #9b2923; }
+::selection { color: var(--text); background: var(--accent); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

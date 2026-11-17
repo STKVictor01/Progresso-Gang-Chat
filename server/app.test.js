@@ -640,6 +640,7 @@ test('banner e cores do perfil são validados, preservados e públicos só para 
     const patch=payload=>app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,...payload}});
     assert.equal((await app.inject('/presence')).json().appearance,true);
     const initial=await profile();
+    assert.equal(initial.active,true);
     assert.equal(initial.bannerUrl,null);assert.equal(initial.appearanceMode,'auto');assert.deepEqual(initial.bannerCrop,{x:50,y:50,zoom:100});assert.deepEqual(initial.badges,[]);assert.ok(initial.memberSince>0);
     const id=randomUUID();
     const image=await sharp({create:{width:68,height:24,channels:3,background:'#3366aa'}}).png().toBuffer();
@@ -692,6 +693,9 @@ test('somente administradores concedem a insígnia de Membro Fundador', async ()
     assert.equal((await asMember('PATCH','/profile',{description:'',avatarId:null,badges:['founder']})).statusCode,200);
     assert.deepEqual((await app.inject('/presence')).json().profiles.find(item=>item.id===member.id).badges,[]);
     assert.equal((await app.inject({method:'DELETE',url:'/admin/users/'+owner.id+'/badges/founder'})).statusCode,200);
+    // Conta desativada aparece marcada para não entrar na lista de offline.
+    assert.equal((await app.inject({method:'PATCH',url:'/admin/users/'+member.id,payload:{role:'member',active:false}})).statusCode,200);
+    assert.equal((await app.inject('/presence')).json().profiles.find(item=>item.id===member.id).active,false);
     assert.deepEqual((await app.inject('/presence')).json().profiles[0].badges,[]);
   } finally { await app.close(); }
 });

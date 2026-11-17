@@ -357,7 +357,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if (badges) for (const row of await db.prepare('SELECT user_id,badge FROM user_badges ORDER BY granted_at').all()) granted.set(row.user_id,[...(granted.get(row.user_id) ?? []),row.badge]);
     const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null, status:user.status_text || '',
       bannerUrl:user.banner_id ? '/api/media/'+user.banner_id : null, bannerCrop:storedCrop(user.banner_crop), appearanceMode:user.appearance_mode==='custom' ? 'custom' : 'auto', customColors:storedTriple(user.custom_colors), autoPalette:storedTriple(user.auto_palette),
-      badges:granted.get(user.id) ?? [], memberSince:Number(accounts.usesSupabase ? user.auth_created_at : user.created_at) || null });
+      badges:granted.get(user.id) ?? [], memberSince:Number(accounts.usesSupabase ? user.auth_created_at : user.created_at) || null, active:Boolean(user.active) });
     return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses, appearance, badgesEnabled:badges };
   });
   app.patch('/profile', async (request,reply) => {

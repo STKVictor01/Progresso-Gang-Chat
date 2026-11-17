@@ -1,6 +1,6 @@
 // Cores da capa da música: um fundo em degradê e um destaque para as ondas sonoras.
 export type CoverPalette = { from: string; to: string; accent: string };
-export const DEFAULT_PALETTE: CoverPalette = { from: '#30201e', to: '#211f1c', accent: '#ed8275' };
+export const DEFAULT_PALETTE: CoverPalette = { from: '#342b32', to: '#211e23', accent: '#cb8883' };
 
 type RGB = [number, number, number];
 const hex = ([r, g, b]: RGB) => '#' + [r, g, b].map(value => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, '0')).join('');

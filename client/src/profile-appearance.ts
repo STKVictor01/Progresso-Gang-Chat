@@ -5,7 +5,8 @@ export type ProfilePalette = {primary:string;secondary:string;accent:string};
 export type BannerCrop = {x:number;y:number;zoom:number};
 export type AppearanceSource = {appearanceMode?:'auto'|'custom';customColors?:string[]|null;autoPalette?:string[]|null};
 
-export const DEFAULT_PROFILE_PALETTE:ProfilePalette = {primary:'#22231f',secondary:'#191a17',accent:'#ff8b7f'};
+// Perfis sem personalização seguem a paleta pastel do site.
+export const DEFAULT_PROFILE_PALETTE:ProfilePalette = {primary:'#282329',secondary:'#211e23',accent:'#cb8883'};
 export const DEFAULT_CROP:BannerCrop = {x:50,y:50,zoom:100};
 export const PROFILE_COLOR_SUGGESTIONS:ProfilePalette[] = [
   {primary:'#2b1d1a',secondary:'#1b1311',accent:'#ff8b7f'},

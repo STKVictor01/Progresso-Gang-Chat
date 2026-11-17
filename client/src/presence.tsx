@@ -4,7 +4,7 @@ import { api, jsonApi } from './api';
 import { AdminPanel, PasswordPanel, useAccount } from './accounts';
 import { normalizeHexColor, readableNameColor } from './chat-format';
 import { convertAudio } from './audio-file';
-import { bannerPalette, ProfileCard, ProfileMiniCard } from './profile-card';
+import { bannerPalette, ProfileAvatar, ProfileCard, ProfileMiniCard } from './profile-card';
 import type { ProfileData } from './profile-card';
 import { AppearanceSettings, prepareBanner } from './profile-appearance-editor';
 import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
@@ -230,8 +230,34 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
     {panel==='admin' && <AdminPanel onClose={() => setPanel(null)}/>}
   </>;
 }
-export function OnlineMembers() {
-  const {people,showProfile,voiceChannels} = usePresence();
+// Painel de membros: quem está em call, quem está online e quem está offline.
+const OFFLINE_KEY='pg-members-offline-open';
+function readOfflineOpen(){try{return localStorage.getItem(OFFLINE_KEY)!=='0';}catch{return true;}}
+export function MemberGroups({activeVoice,activeCall,activeCount}:{activeVoice:string|null;activeCall:ReactNode;activeCount:number}) {
+  const {people,profiles,showProfile,voiceChannels} = usePresence();
   const {voice} = useAccount();
-  return <section className="online-members" aria-labelledby="online-members-title"><h2 className="sidebar-section-label" id="online-members-title">ONLINE <span>{people.length}</span></h2>{people.length ? <ul>{people.map(person => { const calls=voice.filter(channel=>voiceChannels?.[channel.id]?.includes(person.id)).map(channel=>channel.name); return <li key={person.id}><ProfileMiniCard profile={person} calls={calls} onOpen={()=>showProfile(person.id)}/></li>; })}</ul> : <p className="sidebar-empty">Ninguém online agora.</p>}</section>;
+  const [offlineOpen,setOfflineOpen] = useState(readOfflineOpen);
+  const inCall = new Set(voice.flatMap(channel => voiceChannels?.[channel.id] ?? []));
+  const online = new Set(people.map(person => person.id));
+  const otherCalls = voice.filter(channel => channel.id!==activeVoice).map(channel => ({channel, members:(voiceChannels?.[channel.id] ?? []).map(id => profiles.find(person => person.id===id)).filter((person):person is OnlineUser => !!person)})).filter(group => group.members.length);
+  const available = people.filter(person => !inCall.has(person.id));
+  const offline = profiles.filter(person => person.active!==false && !online.has(person.id) && !inCall.has(person.id)).sort((a,b) => a.name.localeCompare(b.name,'pt-BR'));
+  const callTotal = (activeVoice ? activeCount : 0) + otherCalls.reduce((sum,group) => sum+group.members.length,0);
+  function toggleOffline(open:boolean) { setOfflineOpen(open); try { localStorage.setItem(OFFLINE_KEY,open?'1':'0'); } catch { /* Preferência opcional. */ } }
+  return <>
+    <section className="member-group call-members" aria-labelledby="members-call-title">
+      <h2 className="sidebar-section-label member-group-title" id="members-call-title">NA CALL <span>{callTotal}</span></h2>
+      {activeCall}
+      {otherCalls.map(group => <div className="member-call" key={group.channel.id}><h3 className="member-call-title"><span>{group.channel.name}</span><span>{group.members.length}</span></h3><ul className="member-list">{group.members.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[]} onOpen={()=>showProfile(person.id)}/></li>)}</ul></div>)}
+      {!callTotal && <p className="sidebar-empty">Ninguém em call agora.</p>}
+    </section>
+    <section className="member-group online-members" aria-labelledby="online-members-title">
+      <h2 className="sidebar-section-label member-group-title" id="online-members-title">ONLINE <span>{available.length}</span></h2>
+      {available.length ? <ul className="member-list">{available.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[]} onOpen={()=>showProfile(person.id)}/></li>)}</ul> : <p className="sidebar-empty">{people.length ? 'Todo mundo online está em call.' : 'Ninguém online agora.'}</p>}
+    </section>
+    <details className="member-group offline-members" open={offlineOpen} onToggle={event => toggleOffline(event.currentTarget.open)}>
+      <summary className="sidebar-section-label member-group-title"><span>OFFLINE</span><span>{offline.length}</span></summary>
+      {offline.length ? <ul className="offline-list">{offline.map(person => <li key={person.id}><button className="offline-member" onClick={()=>showProfile(person.id)} aria-label={'Ver perfil de '+person.name+', offline'}><ProfileAvatar person={person}/><span>{person.name}</span></button></li>)}</ul> : <p className="sidebar-empty">Ninguém offline.</p>}
+    </details>
+  </>;
 }

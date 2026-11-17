@@ -4,10 +4,10 @@ import { PreferencesContext, useCallPreferences } from './call-preferences';
 import { AudioTrack, useLocalParticipant, useRoomContext, useTracks } from '@livekit/components-react';
 import { LocalAudioTrack, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
-import { applyNoiseSuppression, isListenerMuted, listenerId, listenerVolume, readNoisePreference, readVolumePreferences, toggleListenerMute } from './call-settings';
+import { isListenerMuted, isNoiseSuppressionSupported, listenerId, listenerVolume, microphoneOptions, readNoisePreference, readVolumePreferences, toggleListenerMute } from './call-settings';
 import { useAccount } from './accounts';
 import type { ListenerPreferences } from './call-settings';
-import { createVoiceProcessor } from './voice-effects';
+import { createMicrophoneProcessor } from './microphone-processor';
 import type { VoiceEffect } from './voice-effects';
 
 export function CallPreferencesProvider({ children }: { children: ReactNode }) {
@@ -40,61 +40,85 @@ export function CallPreferencesProvider({ children }: { children: ReactNode }) {
   }
   const [noiseSuppression, setNoiseSuppression] = useState(readNoisePreference);
   const [noiseBusy, setNoiseBusy] = useState(false);
-  const [applied, setApplied] = useState<boolean | undefined>();
+  const [noiseActive, setNoiseActive] = useState(false);
   const [error, setError] = useState('');
   const [voiceEffect, setVoiceEffect] = useState<VoiceEffect>('natural');
   const [voiceEffectStatus, setVoiceEffectStatus] = useState('Voz natural.');
   const [voiceEffectBusy, setVoiceEffectBusy] = useState(false);
-  const voiceEffectQueue = useRef<Promise<void>>(Promise.resolve());
-  const noiseSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getSupportedConstraints().noiseSuppression;
+  const processingQueue = useRef<Promise<void>>(Promise.resolve());
+  const noiseSupported = isNoiseSuppressionSupported();
   const track = microphoneTrack?.track;
   useEffect(() => {
     let cancelled = false;
     if (!(track instanceof LocalAudioTrack) || !isMicrophoneEnabled || track.mediaStreamTrack.readyState === 'ended') {
       const timer = setTimeout(() => {
+        setNoiseBusy(false);
+        setNoiseActive(false);
+        setError('');
         setVoiceEffectBusy(false);
         setVoiceEffectStatus(voiceEffect === 'natural' ? 'Voz natural.' : 'O efeito será aplicado ao ligar o microfone.');
       }, 0);
       return () => { cancelled = true; clearTimeout(timer); };
     }
     const audioTrack = track;
-    voiceEffectQueue.current = voiceEffectQueue.current.catch(() => {}).then(async () => {
+    let processor: ReturnType<typeof createMicrophoneProcessor> | undefined;
+    processingQueue.current = processingQueue.current.catch(() => {}).then(async () => {
       if (cancelled) return;
+      setNoiseBusy(true);
+      setNoiseActive(false);
+      setError('');
       setVoiceEffectBusy(true);
       try {
-        if (voiceEffect === 'natural') {
-          if (audioTrack.getProcessor()?.name === 'pg-voice-effect') await audioTrack.stopProcessor();
-        } else {
-          const processor = createVoiceProcessor(voiceEffect);
+        await audioTrack.applyConstraints(microphoneOptions());
+        if (cancelled) return;
+        if ((noiseSupported && noiseSuppression) || voiceEffect !== 'natural') {
+          processor = createMicrophoneProcessor(noiseSupported && noiseSuppression, voiceEffect, () => {
+            if (cancelled) return;
+            setNoiseActive(false);
+            setError('O filtro de áudio parou. Desligue e ligue a redução de ruído para tentar novamente.');
+            setVoiceEffectStatus('O processamento de áudio parou. Selecione o efeito novamente.');
+            processingQueue.current = processingQueue.current.catch(() => {}).then(async () => {
+              if (audioTrack.getProcessor() === processor) await audioTrack.stopProcessor();
+            }).catch(() => { /* The visible error remains until the user retries. */ });
+          });
           await audioTrack.setProcessor(processor);
           if (cancelled && audioTrack.getProcessor() === processor) await audioTrack.stopProcessor();
+        } else if (audioTrack.getProcessor()?.name === 'pg-microphone') {
+          await audioTrack.stopProcessor();
         }
-        if (!cancelled) setVoiceEffectStatus(voiceEffect === 'natural' ? 'Voz natural.' : 'Efeito ativo no seu microfone.');
+        if (!cancelled) {
+          setNoiseActive(noiseSupported && noiseSuppression);
+          setVoiceEffectStatus(voiceEffect === 'natural' ? 'Voz natural.' : 'Efeito ativo no seu microfone.');
+        }
       } catch {
-        if (!cancelled) setVoiceEffectStatus('Não foi possível aplicar o efeito. Selecione voz natural ou tente novamente.');
+        // A failed graph must never leave the sender attached to a stopped track.
+        if (audioTrack.getProcessor()?.name === 'pg-microphone') {
+          await audioTrack.stopProcessor().catch(() => { /* Report the processing failure below. */ });
+        }
+        if (!cancelled) {
+          setNoiseActive(false);
+          setError('Não foi possível aplicar o filtro de áudio. Desligue e ligue a redução de ruído para tentar novamente.');
+          setVoiceEffectStatus('Não foi possível aplicar o efeito. Selecione voz natural ou tente novamente.');
+        }
       } finally {
-        if (!cancelled) setVoiceEffectBusy(false);
+        if (!cancelled) { setNoiseBusy(false); setVoiceEffectBusy(false); }
       }
     });
-    return () => { cancelled = true; };
-  }, [track, isMicrophoneEnabled, voiceEffect]);
-  useEffect(() => {
-    if (!(track instanceof LocalAudioTrack) || track.mediaStreamTrack.readyState === 'ended') return;
-    let cancelled = false;
-    void applyNoiseSuppression(track, noiseSupported && noiseSuppression)
-      .then(actual => { if (!cancelled) { setApplied(actual); setError(''); } })
-      .catch(() => { if (!cancelled) setError('Não foi possível aplicar o filtro. Tente desligar e ligar a opção novamente.'); })
-      .finally(() => { setNoiseBusy(false); });
-    return () => { cancelled = true; };
-  }, [track, isMicrophoneEnabled, noiseSupported, noiseSuppression]);
+    return () => {
+      cancelled = true;
+      processingQueue.current = processingQueue.current.catch(() => {}).then(async () => {
+        if (processor && audioTrack.getProcessor() === processor) await audioTrack.stopProcessor();
+      }).catch(() => { /* Disconnected tracks may already be stopped. */ });
+    };
+  }, [track, isMicrophoneEnabled, voiceEffect, noiseSupported, noiseSuppression]);
   function toggleNoise() {
     if (!noiseSupported || noiseBusy) return;
     const next = !noiseSuppression;
-    setNoiseSuppression(next); setError(''); setNoiseBusy(track instanceof LocalAudioTrack && track.mediaStreamTrack.readyState !== 'ended');
+    setNoiseSuppression(next); setError('');
     try { localStorage.setItem('pg-noise-suppression', String(next)); } catch { /* Storage is optional. */ }
   }
-  const noiseStatus = !noiseSupported ? 'Este navegador não oferece esse filtro.' : error || (noiseBusy ? 'Ajustando filtro…' : !track || track.mediaStreamTrack.readyState === 'ended' ? 'A opção será aplicada ao ligar o microfone.' : !noiseSuppression ? 'Supressão de ruído desligada.' : applied === true ? 'Redução de ruído ativa no microfone.' : applied === false ? 'O navegador não ativou a redução de ruído.' : 'Redução de ruído solicitada ao navegador.');
-  return <PreferencesContext.Provider value={{ deafened, deafenBusy, deafenError, toggleDeafen, muted, volumes, screenVolumes, setScreenVolume: (identity, volume) => setScreenVolumes(previous => ({...previous, [listenerId(identity)]: volume})), setVolume: (identity, volume) => setVolumes(previous => ({...previous, [listenerId(identity)]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, listenerId(identity), source)), noiseSuppression, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
+  const noiseStatus = !noiseSupported ? 'Redução de ruído indisponível neste navegador. Use um navegador atualizado com acesso seguro ao chat.' : error || (noiseBusy ? 'Ajustando redução de ruído…' : !noiseSuppression ? 'Redução de ruído desligada.' : !isMicrophoneEnabled || !track || track.mediaStreamTrack.readyState === 'ended' ? 'A redução de ruído será aplicada ao ligar o microfone.' : noiseActive ? 'Redução de ruído ativa no seu microfone.' : 'Aguardando redução de ruído.');
+  return <PreferencesContext.Provider value={{ deafened, deafenBusy, deafenError, toggleDeafen, muted, volumes, screenVolumes, setScreenVolume: (identity, volume) => setScreenVolumes(previous => ({...previous, [listenerId(identity)]: volume})), setVolume: (identity, volume) => setVolumes(previous => ({...previous, [listenerId(identity)]: volume})), toggleMute: (identity, source) => setMuted(previous => toggleListenerMute(previous, listenerId(identity), source)), noiseSuppression, noiseActive, noiseSupported, noiseBusy, noiseStatus, toggleNoise, voiceEffect, setVoiceEffect, voiceEffectStatus, voiceEffectBusy }}>{children}</PreferencesContext.Provider>;
 }
 export function PersonalAudioRenderer() {
   const { muted, volumes, screenVolumes, deafened } = useCallPreferences();
@@ -136,7 +160,7 @@ export function ParticipantAudioControls({ participant }: { participant: Partici
 export function NoiseSuppressionControl() {
   const preferences = useCallPreferences();
   const label = preferences.noiseSupported ? (preferences.noiseSuppression ? 'Desligar redução de ruídos' : 'Ligar redução de ruídos') : 'Redução de ruídos indisponível';
-  return <div className="noise-control"><button className="button noise-toggle" aria-label={label} title={label + ' — ' + preferences.noiseStatus} aria-pressed={preferences.noiseSupported && preferences.noiseSuppression} disabled={!preferences.noiseSupported || preferences.noiseBusy} onClick={preferences.toggleNoise} aria-describedby="noise-status"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4M22 11v2"/>{!preferences.noiseSuppression && <path d="M3 3l18 18"/>}</svg></button><span id="noise-status" className="sr-only" role="status">{preferences.noiseStatus}</span></div>;
+  return <div className="noise-control"><button className="button noise-toggle" aria-label={label} title={label + ' — ' + preferences.noiseStatus} aria-pressed={preferences.noiseSupported && preferences.noiseSuppression} data-active={preferences.noiseActive} disabled={!preferences.noiseSupported || preferences.noiseBusy} onClick={preferences.toggleNoise} aria-describedby="noise-status"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4M22 11v2"/>{!preferences.noiseSuppression && <path d="M3 3l18 18"/>}</svg><span>Redução de ruído</span></button><span id="noise-status" role="status">{preferences.noiseStatus}</span></div>;
 }
 
 export function VoiceEffectControl() {

@@ -1,4 +1,4 @@
-import type { AudioCaptureOptions, LocalAudioTrack } from 'livekit-client';
+import type { AudioCaptureOptions } from 'livekit-client';
 
 export type AudioSource = 'microphone' | 'screen';
 export type ListenerPreferences = Record<string, Partial<Record<AudioSource, boolean>>>;
@@ -24,13 +24,14 @@ export function listenerVolume(preferences: ListenerPreferences, volumes: Record
   if (isListenerMuted(preferences, identity, source)) return 0;
   return (source === 'microphone' ? volumes : screenVolumes)[identity] ?? 1;
 }
-export function microphoneOptions(enabled: boolean): AudioCaptureOptions {
-  return { noiseSuppression: enabled, echoCancellation: true, autoGainControl: true };
+export function microphoneOptions(): AudioCaptureOptions {
+  // Suppression belongs to the app. Keep browser echo cancellation and gain control.
+  return { noiseSuppression: false, echoCancellation: true, autoGainControl: true };
 }
 export function readNoisePreference() {
   try { return localStorage.getItem('pg-noise-suppression') !== 'false'; } catch { return true; }
 }
-export async function applyNoiseSuppression(track: Pick<LocalAudioTrack, 'applyConstraints' | 'mediaStreamTrack'>, enabled: boolean) {
-  await track.applyConstraints(microphoneOptions(enabled));
-  return track.mediaStreamTrack.getSettings().noiseSuppression;
+export function isNoiseSuppressionSupported() {
+  return globalThis.isSecureContext === true && typeof AudioContext !== 'undefined'
+    && typeof AudioWorkletNode !== 'undefined' && typeof WebAssembly !== 'undefined';
 }

@@ -86,8 +86,29 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     const created=await call(admin,'POST','/admin/channels',{name:'Texto temporário',kind:'text'});
     assert.equal(created.statusCode,201);
     const channelId=created.json().id;
-    const [removed,sent]=await Promise.all([call(admin,'DELETE','/admin/channels/text/'+channelId),call(user,'POST','/messages',{clientId:randomUUID(),channel:channelId,text:'Teste concorrente'})]);
-    assert.ok(removed.statusCode===200?[400,409].includes(sent.statusCode):removed.statusCode===409&&sent.statusCode===201);
+    const channelFileId=randomUUID();
+    assert.equal((await call(user,'POST','/uploads',image,{'content-type':'application/octet-stream','x-upload-id':channelFileId,'x-upload-channel':channelId})).statusCode,201);
+    const channelMessage=await call(user,'POST','/messages',{clientId:randomUUID(),channel:channelId,text:'Com arquivo',attachmentIds:[channelFileId]});
+    assert.equal(channelMessage.statusCode,201);
+    assert.equal((await call(user,'POST','/messages',{clientId:randomUUID(),channel:channelId,text:'Resposta',replyTo:channelMessage.json().id})).statusCode,201);
+    assert.equal((await call(user,'DELETE','/admin/channels/text/'+channelId)).statusCode,403);
+    assert.equal((await call(admin,'DELETE','/admin/channels/text/'+channelId)).statusCode,200);
+    assert.equal((await call(user,'GET','/media/'+channelFileId)).statusCode,404);
+    assert.equal((await call(user,'GET','/messages?channel='+channelId)).statusCode,400);
+    assert.equal((await call(user,'GET','/media/'+bannerId)).statusCode,200);
+    const check=new pg.Client({connectionString:process.env.PG_TEST_DATABASE_URL,ssl:{ca:readFileSync(process.env.PG_TEST_CA_CERT,'utf8'),rejectUnauthorized:true}});
+    try {
+      await check.connect();
+      const removedData=await check.query(`SELECT (SELECT count(*)::int FROM ${schema}.messages WHERE channel=$1) AS messages,(SELECT count(*)::int FROM ${schema}.message_events WHERE channel=$1) AS events,(SELECT count(*)::int FROM ${schema}.attachments WHERE id=$2) AS attachments`,[channelId,channelFileId]);
+      assert.deepEqual(removedData.rows[0],{messages:0,events:0,attachments:0});
+    } finally {await check.end();}
+    const raceChannel=(await call(admin,'POST','/admin/channels',{name:'Concorrente',kind:'text'})).json().id;
+    const [removed,sent]=await Promise.all([call(admin,'DELETE','/admin/channels/text/'+raceChannel),call(user,'POST','/messages',{clientId:randomUUID(),channel:raceChannel,text:'Teste concorrente'})]);
+    assert.equal(removed.statusCode,200);assert.ok([201,400,409].includes(sent.statusCode));
+    const deleteRaceChannel=(await call(admin,'POST','/admin/channels',{name:'Exclusão concorrente',kind:'text'})).json().id;
+    const deleteRaceMessage=await call(user,'POST','/messages',{clientId:randomUUID(),channel:deleteRaceChannel,text:'Teste de exclusão'});
+    const [channelRemoved,messageRemoved]=await Promise.all([call(admin,'DELETE','/admin/channels/text/'+deleteRaceChannel),call(user,'DELETE','/messages/'+deleteRaceMessage.json().id)]);
+    assert.equal(channelRemoved.statusCode,200);assert.ok([200,404].includes(messageRemoved.statusCode));
     assert.equal((await call(admin,'PATCH','/admin/users/'+member.json().user.id,{role:'admin',active:true})).statusCode,200);
     const secondLogin=await call({origin},'POST','/auth/login',{username:'Pessoa final',password});
     assert.equal(secondLogin.statusCode,200);const secondAdmin=headers(secondLogin);

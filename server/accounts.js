@@ -351,11 +351,19 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
       const channel=await db.prepare('SELECT id FROM channels WHERE id=? AND kind=?').get(id,kind);
       if(!channel)return 404;
       if((await db.prepare("SELECT COUNT(*) AS total FROM channels WHERE kind='text'").get()).total<=1)return 409;
-      if(await db.prepare('SELECT id FROM messages WHERE channel=? LIMIT 1').get(id))return 409;
+      const attachments=await db.prepare('SELECT ma.attachment_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE m.channel=?').all(id);
+      await db.prepare('UPDATE messages SET reply_to_id=NULL WHERE reply_to_id IN (SELECT id FROM messages WHERE channel=?)').run(id);
+      await db.prepare('DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE channel=?)').run(id);
+      for(let i=0;i<attachments.length;i+=200){
+        const batch=attachments.slice(i,i+200);
+        await db.prepare('DELETE FROM attachments WHERE id IN ('+batch.map(()=>'?').join(',')+')').run(...batch.map(item=>item.attachment_id));
+      }
+      await db.prepare('DELETE FROM message_events WHERE channel=?').run(id);
+      await db.prepare('DELETE FROM messages WHERE channel=?').run(id);
       await db.prepare('DELETE FROM channels WHERE id=? AND kind=?').run(id,kind);return 200;
     });
     if(result===404)return fail(reply,404,'Canal não encontrado.');
-    if(result===409)return fail(reply,409,'Só é possível excluir canais de texto vazios, mantendo pelo menos um canal. Mensagens e anexos não são apagados.');
+    if(result===409)return fail(reply,409,'É necessário manter pelo menos um canal de texto.');
     recordEvent('channel-update',{actor:request.user.username,channel:'canal de texto removido'});return {ok:true};
   });
   // Ordem dos canais na barra lateral. A seção cujo primeiro canal vem antes aparece primeiro.

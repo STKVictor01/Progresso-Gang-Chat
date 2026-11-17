@@ -667,26 +667,36 @@ test('administrador reordena canais e seções; membros não podem', async () =>
   } finally { await app.close(); }
 });
 
-test('exclusão só permite canal de texto vazio e preserva históricos e calls',async()=>{
+test('administrador exclui canal com histórico e anexos sem afetar outros canais',async()=>{
   const app=await createApp({...options,dbPath:':memory:'});
   try{
     const create=name=>app.inject({method:'POST',url:'/admin/channels',payload:{name,kind:'text'}});
     const empty=(await create('Canal vazio')).json().id;
     const history=(await create('Canal com histórico')).json().id;
-    const sent=await app.inject({method:'POST',url:'/messages',payload:{channel:history,clientId:randomUUID(),text:'Preservar'}});
+    const attachmentId=randomUUID();
+    const upload=await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':attachmentId,'x-upload-channel':history,'x-upload-name':'teste.txt'},payload:Buffer.from('anexo de teste')});
+    assert.equal(upload.statusCode,201);
+    const sent=await app.inject({method:'POST',url:'/messages',payload:{channel:history,clientId:randomUUID(),text:'Histórico',attachmentIds:[attachmentId]}});
     assert.equal(sent.statusCode,201);
-    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+history})).statusCode,409);
-    assert.equal((await app.inject({url:'/messages?channel='+history})).json().messages[0].text,'Preservar');
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{channel:history,clientId:randomUUID(),text:'Resposta',replyTo:sent.json().id}})).statusCode,201);
+    const kept=await app.inject({method:'POST',url:'/messages',payload:{channel:'general',clientId:randomUUID(),text:'Outro canal'}});
     assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/general'})).statusCode,409);
     assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/voice/geral'})).statusCode,409);
     const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
     const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro canal',password:testPassword}});
     assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+empty,headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf}})).statusCode,403);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+history,headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf}})).statusCode,403);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+history})).statusCode,200);
+    assert.equal((await app.inject({url:'/messages?channel='+history})).statusCode,400);
+    assert.equal((await app.inject({url:'/media/'+attachmentId})).statusCode,404);
+    assert.equal((await app.inject({url:'/messages?channel=general'})).json().messages.some(message=>message.id===kept.json().id),true);
     assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+empty})).statusCode,200);
     assert.equal((await app.inject({method:'POST',url:'/messages',payload:{channel:empty,clientId:randomUUID(),text:'Tarde demais'}})).statusCode,400);
     const race=(await create('Canal simultâneo')).json().id;
     const [remove,send]=await Promise.all([app.inject({method:'DELETE',url:'/admin/channels/text/'+race}),app.inject({method:'POST',url:'/messages',payload:{channel:race,clientId:randomUUID(),text:'Mensagem simultânea'}})]);
-    assert.ok(remove.statusCode===200 ? [400,409].includes(send.statusCode) : remove.statusCode===409 && send.statusCode===201);
+    assert.equal(remove.statusCode,200);
+    assert.ok([201,400,409].includes(send.statusCode));
+    assert.equal((await app.inject({url:'/messages?channel='+race})).statusCode,400);
   }finally{await app.close();}
 });
 

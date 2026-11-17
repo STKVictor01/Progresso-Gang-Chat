@@ -1633,6 +1633,40 @@ input::placeholder { color: var(--muted); }
 .invite-inbox li div { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .account-menu-button { position:relative; }
 .account-unread { position:absolute; top:-4px; right:-5px; min-width:18px; padding:2px 4px; border-radius:12px; color:#fff; background:var(--danger); font-size:10px; line-height:1.2; }
+/* Administração acompanha os painéis do chat e mantém os controles acessíveis no celular. */
+.community-admin { width:min(800px,calc(100vw - 32px)); padding:24px; }
+.community-admin > header { align-items:center; }
+.community-admin > header h2 { font-size:1.3rem; }
+.community-admin > header .button { flex-shrink:0; }
+.admin-intro { position:relative; margin-top:18px; padding:16px 18px 16px 20px; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:linear-gradient(120deg,var(--raised),var(--panel)); }
+.admin-intro::before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--terracotta); }
+.admin-intro span { color:var(--rose); font-size:var(--font-xs); font-weight:700; letter-spacing:.12em; }
+.admin-intro p { margin:5px 0 0; font-size:var(--font-sm); }
+.community-admin .admin-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin:18px 0; padding:5px; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); }
+.community-admin .admin-tabs .button { min-width:0; min-height:44px; padding:8px; border:1px solid transparent; border-radius:var(--radius-sm); color:var(--text-2); background:transparent; font-size:var(--font-sm); line-height:1.2; }
+.community-admin .admin-tabs .button:hover { color:var(--text); background:var(--raised); }
+.community-admin .admin-tabs .button[aria-pressed=true] { color:var(--text); background:var(--raised); border-color:var(--line-strong); box-shadow:inset 0 -2px var(--terracotta); }
+.community-admin .admin-tabs .button:focus-visible { outline:2px solid var(--rose); outline-offset:2px; }
+.community-admin > p[role=status]:empty { display:none; }
+.community-admin form { max-width:100%; }
+.community-admin h3 { color:var(--text); font-size:var(--font-md); }
+.community-admin .channel-order, .community-admin .invite-inbox li, .community-admin .admin-people li { background:var(--raised); border:1px solid var(--line); border-radius:var(--radius); }
+.community-admin .channel-order { margin:16px 0 22px; }
+.community-admin .admin-people { display:grid; gap:8px; }
+.community-admin .admin-people li { padding:14px; }
+.community-admin .admin-channel-list .button { overflow-wrap:anywhere; text-align:left; }
+.community-admin .server-logs li { padding:12px; border-bottom:1px solid var(--line); }
+.admin-delete-confirm { display:grid; gap:10px; padding:16px; border:1px solid var(--danger); border-radius:var(--radius); background:var(--raised); }
+.admin-delete-confirm p { margin:0; font-size:var(--font-sm); }
+.admin-delete-confirm > div { display:flex; flex-wrap:wrap; gap:8px; }
+.admin-delete-confirm .danger { border-color:var(--danger); color:var(--danger); }
+@media(max-width:767px) {
+  .admin-dialog.community-admin { width:100vw; max-width:100vw; max-height:94dvh; padding:18px 16px max(22px,env(safe-area-inset-bottom)); }
+  .community-admin .admin-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .community-admin .admin-tabs .button:last-child { grid-column:1 / -1; }
+  .community-admin .admin-intro { margin-top:14px; }
+  .community-admin .admin-delete-confirm > div .button { flex:1 1 140px; }
+}
 
 .admin-shortcut { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:var(--raised); cursor:pointer; font:600 13px 'Inter Variable','Segoe UI',sans-serif; }
 .admin-shortcut:hover { border-color:var(--line-strong); }

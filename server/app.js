@@ -14,7 +14,7 @@ import { createMediaCache } from './media-cache.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 29;
+export const HEALTH_VERSION = 30;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -463,7 +463,10 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   app.delete('/messages/:id',async(request,reply)=>{
     const id=Number(request.params.id);
     if(!Number.isSafeInteger(id))return reply.code(404).send({error:'Mensagem não encontrada.'});
+    const existing=await db.prepare('SELECT channel FROM messages WHERE id=? AND deleted_at IS NULL').get(id);
+    if(!existing)return reply.code(404).send({error:'Mensagem não encontrada.'});
     const result=await db.transaction(async()=>{
+      await db.lock('channel-delete:'+existing.channel);
       const message=await db.prepare('SELECT * FROM messages WHERE id=? AND deleted_at IS NULL'+(db.kind==='postgres'?' FOR UPDATE':'')).get(id);
       if(!message)return 404;
       if(request.user.role!=='admin'&&message.user_id!==request.user.id)return 403;

@@ -1,7 +1,32 @@
 import { useEffect, useState } from 'react';
 import { jsonApi } from './api';
+import { useMultibandTrackVolume, useParticipants, useTracks } from '@livekit/components-react';
+import { Track } from 'livekit-client';
+import { ParticipantAudioTarget } from './participant-audio-menu';
+import { useCallPreferences } from './call-preferences';
+import { isListenerMuted, listenerId } from './call-settings';
 
 type MusicState = {current:{title:string;url?:string;query?:string}|null;queue:{url?:string;query?:string}[];error:string;available:boolean};
+const waveformOptions={bands:12,loPass:1,hiPass:256,updateInterval:120};
+export function MusicNowPlaying({channel}:{channel:string}) {
+  const participants=useParticipants();
+  const bot=participants.find(participant=>participant.identity.startsWith('music-bot:'));
+  const audio=useTracks([Track.Source.Microphone],{onlySubscribed:true});
+  const {muted,deafened}=useCallPreferences();
+  const silent=deafened || !!bot && isListenerMuted(muted,listenerId(bot.identity),'microphone');
+  const reference=audio.find(item=>item.participant.identity===bot?.identity);
+  const bands=useMultibandTrackVolume(silent?undefined:reference,waveformOptions);
+  const [state,setState]=useState<MusicState|null>(null);
+  useEffect(()=>{
+    if(!bot)return;
+    let stopped=false;let timer:ReturnType<typeof setTimeout>;
+    async function refresh(){try{const data=await jsonApi('/api/music/'+encodeURIComponent(channel)) as MusicState;if(!stopped)setState(data);}catch{if(!stopped)setState(null);}finally{if(!stopped)timer=setTimeout(refresh,3000);}}
+    void refresh();return()=>{stopped=true;clearTimeout(timer);};
+  },[channel,bot]);
+  if(!bot)return null;
+  const title=state?.current?.title;
+  return <ParticipantAudioTarget participant={bot} className="music-now-playing"><img src="/bot-musica.png" alt=""/><div className="music-now-copy"><strong>(Bot) Ed Motta</strong><span>{title ? 'Reproduzindo: '+title : 'Aguardando música'}</span></div><div className="music-wave" aria-hidden="true">{Array.from({length:12},(_,index)=><i key={index} style={{transform:`scaleY(${Math.max(.1,Math.min(1,(bands[index]||0)*1.2))})`}} />)}</div></ParticipantAudioTarget>;
+}
 export function MusicControl({channel}:{channel:string}) {
   const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [state,setState]=useState<MusicState|null>(null);

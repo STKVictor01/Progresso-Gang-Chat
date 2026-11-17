@@ -135,7 +135,7 @@ export function QuickParticipantMute({ participant }: { participant: Participant
   if (participant.isLocal) return null;
   const silenced = isListenerMuted(muted, listenerId(participant.identity), 'microphone');
   const label = participant.name || 'participante';
-  return <button className={'quick-mute ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} aria-label={(silenced ? 'Ouvir voz de ' : 'Silenciar voz de ') + label + ' só para mim'} title={silenced ? 'Ouvir este amigo' : 'Silenciar este amigo só para você'} onClick={() => toggleMute(participant.identity, 'microphone')}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" />{silenced ? <path d="m16 9 6 6m-6 0 6-6" /> : <path d="M16 8a6 6 0 0 1 0 8" />}</svg></button>;
+  return <button className={'quick-mute ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} aria-label={(silenced ? 'Ouvir voz de ' : 'Silenciar voz de ') + label + ' só para mim'} title={silenced ? 'Ouvir este amigo' : 'Silenciar este amigo só para você'} onClick={() => toggleMute(participant.identity, 'microphone')}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" />{silenced ? <path d="M3 3l18 18" /> : <path d="M16 8a6 6 0 0 1 0 8" />}</svg></button>;
 }
 export function ParticipantAudioControls({ participant }: { participant: Participant }) {
   const { muted, toggleMute, volumes, setVolume, screenVolumes, setScreenVolume } = useCallPreferences();

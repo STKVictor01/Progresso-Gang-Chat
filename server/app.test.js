@@ -101,6 +101,30 @@ test('soundboard validates audio length and shares sounds between calls', async 
     assert.equal((await app.inject({method:'DELETE',url:'/soundboard/'+id})).statusCode,200);
   } finally {await app.close();}
 });
+test('som pessoal pertence à conta, é compartilhado na call e não aparece no soundboard', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  const wav=Buffer.alloc(48);wav.write('RIFF',0);wav.writeUInt32LE(40,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(22050,24);wav.writeUInt32LE(44100,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(4,40);wav.writeInt16LE(5000,44);
+  try {
+    const owner=(await app.inject('/presence')).json().users[0].id;
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',headers:{cookie:''},payload:{token:invite.json().token,username:'Pessoa B',password:testPassword}});
+    const memberId=member.json().user.id,headers={cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf};
+    const upload=(body,extra={})=>app.inject({method:'PUT',url:'/voice-entry',headers:{'content-type':'application/octet-stream',...extra},payload:body});
+    assert.equal((await app.inject({url:'/voice-entry',headers:{cookie:''}})).statusCode,401);
+    assert.equal((await upload(wav,{'x-csrf-token':''})).statusCode,403);
+    assert.equal((await upload(Buffer.alloc(48))).statusCode,400);
+    assert.equal((await upload(wav)).statusCode,200);
+    assert.equal((await app.inject('/voice-entry')).json().configured,true);
+    assert.equal((await app.inject({url:'/voice-entry/'+owner,headers})).statusCode,200);
+    assert.equal((await app.inject('/soundboard?channel=geral')).json().sounds.length,0);
+    assert.equal((await upload(wav,headers)).statusCode,200);
+    assert.equal((await app.inject({method:'DELETE',url:'/voice-entry',headers})).statusCode,200);
+    assert.equal((await app.inject('/voice-entry/'+memberId)).statusCode,404);
+    assert.equal((await app.inject('/voice-entry/'+owner)).statusCode,200);
+    assert.equal((await app.inject({method:'DELETE',url:'/voice-entry'})).statusCode,200);
+    assert.equal((await app.inject('/voice-entry/'+owner)).statusCode,404);
+  } finally {await app.close();}
+});
 test('voice presence reports actual participants once per account and protects the endpoint', async () => {
   let ownerId, memberId;
   const roomService = {

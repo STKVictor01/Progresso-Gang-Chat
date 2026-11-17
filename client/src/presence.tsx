@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { api, jsonApi } from './api';
 import { AdminPanel, PasswordPanel, useAccount } from './accounts';
 import { normalizeHexColor, readableNameColor } from './chat-format';
+import { convertAudio } from './audio-file';
 
 const COLOR_SUGGESTIONS = ['#ff8b7f','#e6c48b','#f5d76e','#8fd694','#6ed3cf','#7fb2ff','#b79cff','#ff9ad5'];
 
@@ -64,6 +65,25 @@ function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUr
 }
 function GearIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>;
+}
+function EntrySoundSettings() {
+  const {user}=useAccount();
+  const [configured,setConfigured]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+  const [file,setFile]=useState<File|null>(null),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
+  useEffect(()=>{let active=true;jsonApi('/api/voice-entry').then(data=>{if(active)setConfigured(data.configured===true);}).catch(()=>{if(active)setMessage('Não foi possível carregar seu som de entrada.');}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[]);
+  async function save(event:FormEvent) {
+    event.preventDefault();if(!file||busy)return;setBusy(true);setMessage('');
+    try {
+      const wav=await convertAudio(file);
+      const response=await api('/api/voice-entry',{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:wav});
+      if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.error||'Não foi possível salvar o som.');}
+      setConfigured(true);setFile(null);setRevision(Date.now());setMessage('Som de entrada salvo.');
+    }catch(cause){setMessage(cause instanceof Error?cause.message:'Não foi possível ler o áudio.');}finally{setBusy(false);}
+  }
+  async function remove() {
+    setBusy(true);setMessage('');try{await jsonApi('/api/voice-entry','DELETE');setConfigured(false);setMessage('Som removido. O som padrão será usado.');}catch{setMessage('Não foi possível remover o som.');}finally{setBusy(false);}
+  }
+  return <section className="profile-account entry-sound-settings" aria-labelledby="entry-sound-title"><h3 id="entry-sound-title">Som de entrada na call</h3><p>As pessoas na call ouvirão seu som quando você entrar. Até 10 segundos e 8 MB.</p>{loading?<p role="status">Carregando…</p>:<><form onSubmit={save}><label>Escolher áudio<input key={revision} type="file" accept="audio/*" onChange={event=>setFile(event.target.files?.[0]||null)} disabled={busy}/></label><button className="button subtle" disabled={busy||!file}>{busy?'Salvando…':'Salvar som de entrada'}</button></form>{configured&&<div className="entry-sound-preview"><audio controls preload="none" src={'/api/voice-entry/'+user.id+'?v='+revision} aria-label="Ouvir seu som de entrada"/><button type="button" className="button subtle" disabled={busy} onClick={()=>void remove()}>Usar som padrão</button></div>}</>}{message&&<p role="status">{message}</p>}</section>;
 }
 // Um único painel reúne foto, apelido, descrição e as opções da conta.
 export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'card'|'avatar'}) {
@@ -148,6 +168,7 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
         {message && <p className="profile-saved" role="status">{message}</p>}
         {error && <p className="error-message" role="alert">{error}</p>}
       </form>
+      <EntrySoundSettings />
       <section className="profile-account" aria-label="Conta">
         <h3>Conta</h3>
         <div className="profile-account-actions">

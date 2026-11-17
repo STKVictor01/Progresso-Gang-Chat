@@ -30,9 +30,9 @@ function synthesized(notes: Note[], volume: number) {
   } catch { /* Sem suporte a áudio: a call continua funcionando em silêncio. */ }
 }
 
-function play(file: string, notes: Note[], volume: number) {
+function play(file: string, notes: Note[], volume: number, fallbackFile?: string) {
   let fellBack = false;
-  const fallback = () => { if (!fellBack) { fellBack = true; synthesized(notes, volume); } };
+  const fallback = () => { if (!fellBack) { fellBack = true; if (fallbackFile) play(fallbackFile, notes, volume); else synthesized(notes, volume); } };
   try {
     const player = new Audio(file);
     player.volume = volume;
@@ -41,5 +41,8 @@ function play(file: string, notes: Note[], volume: number) {
   } catch { fallback(); }
 }
 
-export function playJoinSound(volume = 0.4) { play('/sounds/entrar-na-call.mp3', JOIN, volume); }
+export function playJoinSound(volume = 0.4, userId?: string) {
+  const validId = userId && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(userId);
+  play(validId ? '/api/voice-entry/'+userId : '/sounds/entrar-na-call.mp3', JOIN, volume, validId ? '/sounds/entrar-na-call.mp3' : undefined);
+}
 export function playLeaveSound(volume = 0.4) { play('/sounds/sair-da-call.mp3', LEAVE, volume); }

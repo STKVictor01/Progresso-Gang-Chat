@@ -589,6 +589,20 @@ input::placeholder { color: #949387; }
 .call-controls .music-trigger { min-width:44px; min-height:44px; padding:10px; }
 .music-dialog form { display:flex; flex-direction:column; gap:12px; }
 .music-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.music-now-playing { display:flex; flex-shrink:0; align-items:center; gap:12px; min-width:0; margin-top:12px; padding:10px 64px 10px 12px; border:1px solid #574239; border-radius:10px; background:linear-gradient(110deg,#30201e,#211f1c); }
+.music-now-playing > img { width:42px; height:42px; border-radius:8px; object-fit:cover; }
+.music-now-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:4px; }
+.music-now-copy strong { color:#f4e8db; font-size:13px; }
+.music-now-copy span { color:#c6b8a8; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.music-wave { display:flex; align-items:center; justify-content:center; gap:3px; height:32px; flex-shrink:0; }
+.music-wave i { width:3px; height:28px; border-radius:4px; background:#ed8275; transform-origin:center; transition:transform .12s linear; }
+.music-now-playing .participant-audio-button { top:50%; bottom:auto; transform:translateY(-50%); }
+.participant-audio-button.is-muted { color:#ff8b7f; border-color:#a94940; background:#49221f; }
+.entry-sound-settings form { margin-top:10px; }
+.entry-sound-preview { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.entry-sound-preview audio { width:min(100%,300px); }
+@media(max-width:480px) { .music-now-playing { gap:8px; padding-left:9px; } .music-now-playing > img { width:36px; height:36px; } .music-wave { gap:2px; } .music-wave i { width:2px; } }
+@media(prefers-reduced-motion:reduce) { .music-wave i { transition:none; } }
 
 .public-compose { position:relative; }
 .mention-suggestions { position:absolute; z-index:20; left:12px; bottom:100%; width:min(320px,calc(100% - 24px)); max-height:min(280px,40dvh); overflow:auto; padding:6px; border:1px solid #715148; border-radius:8px; background:#24231f; box-shadow:0 10px 30px #0009; }

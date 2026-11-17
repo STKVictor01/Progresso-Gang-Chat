@@ -51,6 +51,11 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     const sound=await call(user,'POST','/soundboard',wav,{'content-type':'application/octet-stream','x-sound-channel':'geral','x-sound-name':'Teste'});
     assert.equal(sound.statusCode,201);
     assert.equal((await call(user,'GET','/soundboard/'+sound.json().id+'?channel=geral')).statusCode,200);
+    assert.equal((await call(user,'PUT','/voice-entry',wav,{'content-type':'application/octet-stream'})).statusCode,200);
+    assert.equal((await call(admin,'GET','/voice-entry/'+member.json().user.id)).statusCode,200);
+    assert.equal((await call(user,'GET','/soundboard?channel=geral')).json().sounds.length,1);
+    assert.equal((await call(user,'DELETE','/voice-entry')).statusCode,200);
+    assert.equal((await call(admin,'GET','/voice-entry/'+member.json().user.id)).statusCode,404);
     const payload={clientId:randomUUID(),text:'Envio repetido',channel:'general'};
     const duplicate=await Promise.all([call(user,'POST','/messages',payload),call(user,'POST','/messages',payload)]);
     assert.deepEqual(duplicate.map(response=>response.statusCode).sort(),[200,201]);

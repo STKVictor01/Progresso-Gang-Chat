@@ -3,13 +3,14 @@ import { ParticipantTile, useParticipants, useTracks } from '@livekit/components
 import { Track } from 'livekit-client';
 import { usePresence } from './presence';
 import { ParticipantAudioTarget } from './participant-audio-menu';
+import { MusicNowPlaying } from './music';
 
 function viewKey(reference: { participant: { identity: string }; source: Track.Source }) { return reference.participant.identity + ':' + reference.source; }
 function viewLabel(reference: { participant: { name?: string }; source: Track.Source }) { return (reference.source === Track.Source.ScreenShare ? 'Tela' : 'Câmera') + ' · ' + (reference.participant.name || 'Participante'); }
-export function MediaFocusStage() {
-  const participants = useParticipants();
+export function MediaFocusStage({channel}:{channel:string}) {
+  const participants = useParticipants().filter(participant=>!participant.identity.startsWith('music-bot:'));
   const {profiles,showProfile} = usePresence();
-  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }]);
+  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }]).filter(reference=>!reference.participant.identity.startsWith('music-bot:'));
   const audio = useTracks([Track.Source.ScreenShareAudio], { onlySubscribed: false });
   const active = tracks.filter(reference => reference.publication && !reference.publication.isMuted && (reference.source !== Track.Source.Camera || reference.participant.isCameraEnabled));
   const [selection, setSelection] = useState('auto');
@@ -46,10 +47,9 @@ export function MediaFocusStage() {
     {focused && <div className={'focus-surface ' + (expanded ? 'is-expanded' : '')} ref={surface}><div className="focus-toolbar"><div className="focus-title"><span className={screen ? 'live-label' : 'camera-label'}>{screen ? 'AO VIVO' : 'CÂMERA'}</span><strong>{focused.participant.name || 'Participante'}</strong><span className={'share-audio-status ' + (screen && !focusedAudio ? 'no-audio' : 'has-audio')} role="status">{screen ? audioStatus : !focused.publication || focused.publication.isMuted ? 'Câmera desligada' : 'Câmera ligada'}</span></div><div className="focus-actions"><button className="button subtle" onClick={() => step(-1)} disabled={active.length < 2} aria-label="Destaque anterior">←</button><button className="button subtle" onClick={() => step(1)} disabled={active.length < 2} aria-label="Próximo destaque">→</button><button className="button subtle" onClick={() => void fullscreen()} aria-label={nativeFullscreen || expanded ? 'Sair da tela cheia' : 'Expandir destaque em tela cheia'}>{nativeFullscreen || expanded ? 'Reduzir' : 'Tela cheia'}</button></div></div><ParticipantAudioTarget className="focused-media" participant={focused.participant}><ParticipantTile trackRef={focused} /></ParticipantAudioTarget></div>}
     <div className={'people-grid media-thumbnails ' + (focused ? 'compact-thumbnails' : '')}>{tracks.filter(reference => !focused || viewKey(reference) !== viewKey(focused)).map(reference => <div className="tile-card" key={viewKey(reference)}><div className="tile-label">{reference.source===Track.Source.Camera && !active.some(item=>viewKey(item)===viewKey(reference)) ? (reference.participant.name || 'Participante')+' · câmera desligada' : viewLabel(reference)}</div><ParticipantAudioTarget className="tile-video" participant={reference.participant}><ParticipantTile trackRef={reference} />{reference.source === Track.Source.Camera && !active.some(item => viewKey(item) === viewKey(reference)) && (() => {
       const profile=profiles.find(person => person.id === reference.participant.identity.split(':')[0]);
-      if (reference.participant.identity.startsWith('music-bot:')) return <span className="tile-profile-avatar"><img src="/bot-musica.png" alt="" /></span>;
       return profile?.avatarUrl ? <button className="tile-profile-avatar" onClick={()=>showProfile(profile.id)} aria-label={'Ver perfil de '+profile.name}><img src={profile.avatarUrl} alt="" /></button> : null;
     })()}{active.some(item => viewKey(item) === viewKey(reference)) && <button className="button subtle tile-select" onClick={() => setSelection(viewKey(reference))} aria-label={'Destacar ' + (reference.source === Track.Source.ScreenShare ? 'tela' : 'câmera') + ' de ' + (reference.participant.name || 'participante')}>Destacar</button>}</ParticipantAudioTarget></div>)}</div>
-    {!active.length && <p className="waiting-note">Nenhuma câmera ou transmissão ativa. Ligue a câmera ou compartilhe uma tela para destacar.</p>}{participants.length === 1 && <p className="waiting-note">Por enquanto, só você. Compartilhe o endereço com quem já tem conta.</p>}
+    <MusicNowPlaying channel={channel} />{!active.length && <p className="waiting-note">Nenhuma câmera ou transmissão ativa. Ligue a câmera ou compartilhe uma tela para destacar.</p>}{participants.length === 1 && <p className="waiting-note">Por enquanto, só você. Compartilhe o endereço com quem já tem conta.</p>}
   </section>;
 }
 

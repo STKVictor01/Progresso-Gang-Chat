@@ -31,18 +31,27 @@ async def main():
         tone = Path(folder, 'tone.wav')
         with wave.open(str(tone), 'wb') as output:
             output.setparams((2, 2, 48000, 0, 'NONE', 'not compressed'))
-            output.writeframes(b''.join(struct.pack('<hh', int(8000 * math.sin(2 * math.pi * 440 * i / 48000)), int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(96000)))
+            second = b''.join(struct.pack('<hh', int(8000 * math.sin(2 * math.pi * 440 * i / 48000)), int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(48000))
+            output.writeframes(second * 30)
+        with wave.open(str(Path(folder, 'short.wav')), 'wb') as output:
+            output.setparams((2, 2, 48000, 0, 'NONE', 'not compressed'))
+            output.writeframes(second * 2)
         class Handler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=folder, **kwargs)
             def log_message(self, *_args):
                 pass
-        web = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        class TestServer(http.server.ThreadingHTTPServer):
+            def handle_error(self, request, address):
+                if not isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+                    super().handle_error(request, address)
+        web = TestServer(('127.0.0.1', 0), Handler)
         threading.Thread(target=web.serve_forever, daemon=True).start()
         audio_url = f'http://127.0.0.1:{web.server_port}/tone.wav'
-        Path(folder, 'yt_dlp.py').write_text("class YoutubeDL:\n def __init__(self,*a,**k): pass\n def __enter__(self): return self\n def __exit__(self,*a): pass\n def extract_info(self,*a,**k): return {'id':'abcdefghijk','title':'Som sintético','url':" + repr(audio_url) + ", 'http_headers':{}}\n")
+        Path(folder, 'yt_dlp.py').write_text("import time\nclass YoutubeDL:\n def __init__(self,*a,**k): pass\n def __enter__(self): return self\n def __exit__(self,*a): pass\n def extract_info(self,target,*a,**k):\n  if 'lento' in target: time.sleep(2)\n  url=" + repr(audio_url) + "\n  if 'curta' in target: url=url.replace('tone.wav','short.wav')\n  return {'id':'abcdefghijk','title':'Som sintético','url':url, 'http_headers':{}}\n", encoding='utf-8')
         env = {**os.environ, 'PYTHONPATH': folder}
-        worker = await asyncio.create_subprocess_exec(sys.executable, '-u', '/test/server/music_worker.py', stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env)
+        worker_path = Path(__file__).resolve().parent.parent / 'server' / 'music_worker.py'
+        worker = await asyncio.create_subprocess_exec(sys.executable, '-u', str(worker_path), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env)
         room = rtc.Room()
         frames = 0
         listeners = []
@@ -58,13 +67,16 @@ async def main():
 
         async def send(data):
             worker.stdin.write((json.dumps(data) + '\n').encode())
-            await worker.stdin.drain()
+            try:
+                await worker.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                raise AssertionError('Worker encerrou: ' + (await worker.stderr.read()).decode(errors='replace'))
 
-        async def wait_event(kind):
+        async def wait_event(kind, timeout=25):
             while True:
-                line = await asyncio.wait_for(worker.stdout.readline(), 25)
+                line = await asyncio.wait_for(worker.stdout.readline(), timeout)
                 if not line:
-                    raise AssertionError('Worker terminou antes do evento esperado')
+                    raise AssertionError('Worker terminou antes do evento esperado: ' + (await worker.stderr.read()).decode(errors='replace'))
                 message = json.loads(line)
                 if message['event'] == 'error':
                     raise AssertionError(message['message'])
@@ -76,14 +88,28 @@ async def main():
             await room.connect(url, token('ouvinte'))
             await send({'serverUrl': url, 'token': token('music-bot:teste')})
             await wait_event('ready')
+            await send({'command': 'play', 'query': 'lento'})
+            await asyncio.sleep(0.2)
+            await send({'command': 'skip'})
+            await wait_event('finished', 1)
             for song in ('primeira', 'segunda'):
                 before = frames
                 await send({'command': 'play', 'query': song})
                 await wait_event('playing')
-                await wait_event('finished')
+                for _ in range(40):
+                    if frames > before:
+                        break
+                    await asyncio.sleep(0.05)
                 assert frames > before, 'O ouvinte não recebeu o áudio da música'
+                await send({'command': 'skip'})
+                await wait_event('finished', 8)
                 assert 'music-bot:teste' in room.remote_participants, 'O bot saiu da sala entre músicas'
-            print('Bot conectado durante duas músicas; ouvinte recebeu áudio nas duas.')
+            before = frames
+            await send({'command': 'play', 'query': 'curta'})
+            await wait_event('playing')
+            await wait_event('finished', 8)
+            assert frames > before, 'A música seguinte não foi reproduzida até o fim'
+            print('Bot pulou durante carregamento e reprodução, tocou até o fim e manteve a conexão.')
         finally:
             worker.stdin.close()
             try:

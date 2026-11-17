@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
+import { TokenVerifier } from 'livekit-server-sdk';
 import { installMusic, parseMusicInput, musicRoomAvailable } from './music.js';
 
 test('limite de salas de música preserva filas das calls já em reprodução',()=>{
@@ -63,5 +64,42 @@ test('o bot mantém a conexão entre músicas e sai apenas depois de ficar ocios
     await post('Terceira');await wait(10);assert.equal(child.commands[3].query,'Terceira');
     await wait(150);assert.equal(child.killed,false);
     send(child,{event:'finished'});await wait(160);assert.equal(child.killed,true);
+  } finally {await app.close();}
+});
+
+test('pular avança a fila e parar limpa músicas pendentes', async () => {
+  const app=Fastify(),children=[];
+  app.addHook('onRequest',async request=>{request.user={id:'user-1'};});
+  function spawnWorker(){
+    const child=new EventEmitter();child.pid=2147483647;child.exitCode=null;child.stdout=new PassThrough();child.commands=[];
+    child.stdin=new Writable({write(chunk,_encoding,callback){child.commands.push(JSON.parse(chunk.toString()));callback();}});
+    children.push(child);return child;
+  }
+  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const event=(child,data)=>child.stdout.write(JSON.stringify(data)+'\n');
+  const post=(path,payload={})=>app.inject({method:'POST',url:'/music/room'+path,payload});
+  installMusic(app,{accounts:{voiceExists:async()=>true},roomService:{listParticipants:async()=>[{identity:'user-1:session'}]},apiKey:'test',apiSecret:'secret',serverUrl:'ws://localhost:7880',spawnWorker,terminateWorker:()=>{},pythonPath:process.execPath});
+  try {
+    await post('',{url:'Primeira'});
+    for(let i=0;i<50&&!children.length;i++)await wait(5);
+    const child=children[0];
+    const token=await new TokenVerifier('test','secret').verify(child.commands[0].token);
+    assert.equal(token.name,'Ed Motta');
+    event(child,{event:'ready'});await wait(10);
+    await post('',{url:'Segunda'});
+    assert.equal((await post('/skip')).statusCode,200);
+    assert.equal(child.commands.at(-1).command,'skip');
+    event(child,{event:'finished'});await wait(10);
+    assert.equal(child.commands.at(-1).query,'Segunda');
+    await post('',{url:'Não tocar'});
+    const stopped=await post('/stop');
+    assert.deepEqual(stopped.json().queue,[]);
+    assert.equal(child.commands.at(-1).command,'skip');
+    event(child,{event:'finished'});await wait(10);
+    assert.equal((await app.inject('/music/room')).json().current,null);
+    assert.equal(child.commands.some(command=>command.query==='Não tocar'),false);
+    await post('',{url:'Depois de parar'});await wait(10);
+    assert.equal(child.commands.at(-1).query,'Depois de parar');
+    assert.equal(children.length,1);
   } finally {await app.close();}
 });

@@ -85,10 +85,14 @@ async def play(item, source):
         else:
             event('error', message='Não foi possível encontrar ou reproduzir essa música. Tente outro nome ou link.')
     finally:
-        if process and process.returncode is None:
-            process.kill()
-            await process.wait()
-        event('finished')
+        if process:
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            # Drene o pipe antes de esperar: no Linux um pipe cheio impede o encerramento.
+            await process.communicate()
 
 
 async def main():
@@ -106,6 +110,7 @@ async def main():
             command = json.loads(line)
             if command.get('command') == 'play' and (not task or task.done()):
                 task = asyncio.create_task(play(command, source))
+                task.add_done_callback(lambda _: event('finished'))
             elif command.get('command') == 'skip' and task and not task.done():
                 task.cancel()
                 try:

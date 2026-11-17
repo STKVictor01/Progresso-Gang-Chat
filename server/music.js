@@ -76,7 +76,7 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
     player.starting=true;
     const serial=++player.serial;
     try {
-      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'24h'});
+      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Ed Motta',ttl:'24h'});
       token.addGrant({roomJoin:true,room,canPublish:true,canSubscribe:false});
       const jwt=await token.toJwt();
       if(player.serial!==serial)return;

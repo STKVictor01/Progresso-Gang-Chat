@@ -1486,43 +1486,66 @@ input::placeholder { color: var(--muted); }
   .online-profile-button.profile-mini.is-preview { cursor:default; }
 }
 
-/* ---------- Login normal no computador: cartaz gráfico ----------
-   Vermelho profundo, papel creme, grafite e dourado discreto. Só blocos e linhas, sem ilustrações. */
+/* ---------- Login normal no computador (≥901px): cartaz construtivista ----------
+   O celular e os demais estados (convite, ativação, recuperação) mantêm o visual anterior. */
 .account-poster { display:none; }
-@media (min-width:821px) {
+@media (min-width:901px) {
   .account-page.is-login {
-    --poster-red:#b3302a; --poster-red-deep:#8a231e; --poster-paper:#eee4cd; --poster-paper-2:#e2d5b6; --poster-ink:#1c1a19; --poster-ink-2:#2a2725; --poster-line:#4b4541; --poster-gold:#c8a24f; --poster-cream-text:#f3ead6; --poster-muted:#c9bea8;
-    grid-template-columns:minmax(0,1.15fr) minmax(440px,.85fr); background:var(--poster-ink);
+    --pc-red:#c3272b; --pc-red-deep:#8e1b1f; --pc-cream:#efe4cb; --pc-ink:#161413; --pc-gold:#d4a23a; --pc-panel:#1a1817; --pc-field:#262322; --pc-line:#3d3835; --pc-muted:#a9a199;
+    --pc-display:"Oswald","Arial Narrow",sans-serif; --pc-text:"Inter",system-ui,sans-serif;
+    grid-template-columns:minmax(0,1.36fr) minmax(440px,1fr); background:var(--pc-panel); font-family:var(--pc-text);
   }
-  .account-page.is-login .account-story { position:relative; isolation:isolate; justify-content:flex-end; gap:22px; padding:clamp(48px,6vw,96px); overflow:hidden; color:var(--poster-ink); background:var(--poster-paper); border-right:6px solid var(--poster-red); }
-  .account-page.is-login .account-story::before, .account-page.is-login .account-story::after { display:none; }
-  .account-page.is-login .account-poster { position:absolute; z-index:-1; inset:0; display:block; pointer-events:none; }
-  .account-page.is-login .account-poster > span { position:absolute; display:block; }
-  .poster-wedge { top:-12%; right:-14%; width:72%; height:78%; background:var(--poster-red); clip-path:polygon(34% 0,100% 0,100% 100%,0 64%); animation:poster-in .7s cubic-bezier(.2,.7,.2,1) both; }
-  .poster-sun { top:13%; right:15%; width:clamp(110px,13vw,210px); aspect-ratio:1; background:var(--poster-paper); border-radius:50%; box-shadow:0 0 0 12px var(--poster-red-deep),0 0 0 16px var(--poster-gold); }
-  .poster-bar { left:-4%; bottom:58%; width:56%; height:20px; background:var(--poster-ink); transform:rotate(-7deg); transform-origin:left center; }
-  .poster-rule { left:clamp(48px,6vw,96px); bottom:clamp(36px,4.5vw,72px); width:140px; height:5px; background:var(--poster-gold); }
-  .account-page.is-login .account-hero { gap:18px; margin-top:0; }
-  .account-page.is-login .account-mark { width:76px; height:76px; color:var(--brand-logo); }
-  .account-page.is-login .account-story h1 { max-width:11ch; color:var(--poster-ink); font-size:clamp(56px,6.2vw,104px); font-weight:900; line-height:.92; letter-spacing:-.045em; text-transform:uppercase; }
-  .account-page.is-login .account-tagline { max-width:32ch; margin:0 0 28px; padding-left:16px; color:var(--poster-red-deep); font-size:clamp(18px,1.55vw,24px); font-style:normal; font-weight:800; line-height:1.3; border-left:6px solid var(--poster-red); }
-  .account-page.is-login .account-panel { padding:clamp(40px,5vw,80px); color:var(--poster-cream-text); }
-  .account-page.is-login .account-panel::before { content:""; display:block; width:72px; height:8px; margin-bottom:28px; background:var(--poster-red); }
-  .account-page.is-login .account-panel h2 { margin:0 0 10px; color:var(--poster-cream-text); font-size:clamp(34px,3vw,46px); font-weight:900; letter-spacing:-.03em; }
-  .account-page.is-login .account-panel > p, .account-page.is-login .account-note { color:var(--poster-muted); }
-  .account-page.is-login .account-panel form > label, .account-page.is-login .account-panel label { color:var(--poster-cream-text); font-weight:700; letter-spacing:.01em; }
-  .account-page.is-login .account-panel small { color:var(--poster-muted); }
-  .account-page.is-login .account-panel input { color:var(--poster-cream-text); background:var(--poster-ink-2); border:2px solid var(--poster-line); border-radius:2px; }
-  .account-page.is-login .account-panel input:focus-visible { outline:2px solid var(--poster-gold); outline-offset:2px; border-color:var(--poster-gold); }
-  .account-page.is-login .account-panel input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px var(--poster-ink-2) inset; -webkit-text-fill-color:var(--poster-cream-text); caret-color:var(--poster-cream-text); }
-  .account-page.is-login .password-visibility { color:var(--poster-cream-text); }
-  .account-page.is-login .account-panel .primary { color:#fff; font-weight:800; letter-spacing:.06em; text-transform:uppercase; background:var(--poster-red); border:0; border-radius:2px; }
-  .account-page.is-login .account-panel .primary:hover:not(:disabled) { background:var(--poster-red-deep); }
-  .account-page.is-login .account-panel .primary:focus-visible, .account-page.is-login .account-panel .button:focus-visible { outline:2px solid var(--poster-gold); outline-offset:3px; }
-  .account-page.is-login .account-panel .subtle { color:var(--poster-cream-text); border-color:var(--poster-line); border-radius:2px; }
-  .account-page.is-login .account-panel .subtle:hover:not(:disabled) { background:var(--poster-ink-2); border-color:var(--poster-gold); }
-  .account-page.is-login .account-panel .error-message { color:#ff9e93; }
-  .account-page.is-login .account-note { border-top-color:var(--poster-line); }
+  .account-page.is-login .account-story { position:relative; display:block; min-height:100dvh; padding:0; overflow:hidden; color:var(--pc-ink); background:var(--pc-cream); border-right:6px solid var(--pc-red); }
+  .account-page.is-login .account-story::before, .account-page.is-login .account-story::after, .account-page.is-login .account-hero, .account-page.is-login .account-tagline { display:none; }
+  .account-page.is-login .account-poster { position:absolute; inset:0; display:block; }
+
+  .poster-cover { position:absolute; inset:0; container-type:size; }
+  .poster-cover > * { position:absolute; margin:0; }
+  .poster-sunburst { z-index:1; inset:0; opacity:.13; background:repeating-conic-gradient(from 0deg at 0 100%, var(--pc-ink) 0deg 2deg, transparent 2deg 6deg); }
+  .poster-wedge, .poster-wedge-shadow { z-index:1; inset:0; clip-path:polygon(38% 0,100% 0,100% 72%,8% 100%,0 100%,0 92%); }
+  .poster-wedge { background:var(--pc-red); }
+  .poster-wedge-shadow { background:var(--pc-red-deep); transform:translateY(4.5%); }
+  .poster-bar { z-index:3; left:-4%; top:39%; width:50%; height:2.6%; background:var(--pc-ink); transform:rotate(-14deg); transform-origin:left center; }
+  .poster-bar-gold { z-index:3; left:-4%; top:43.5%; width:34%; height:.7%; background:var(--pc-gold); transform:rotate(-14deg); transform-origin:left center; }
+  .poster-bust { z-index:4; left:17%; bottom:13%; width:min(81cqw,96cqh); height:auto; aspect-ratio:1024/849; filter:drop-shadow(12px 8px 0 var(--pc-red-deep)); -webkit-mask-image:linear-gradient(#000 82%,transparent); mask-image:linear-gradient(#000 82%,transparent); user-select:none; pointer-events:none; }
+  .poster-seal { z-index:7; top:clamp(28px,4.4cqh,48px); left:7.5%; display:flex; align-items:center; gap:14px; font:500 11px/1 var(--pc-display); letter-spacing:.3em; text-transform:uppercase; color:var(--pc-ink); }
+  .poster-seal b { padding:6px 8px; color:var(--pc-cream); background:var(--pc-ink); font-weight:700; letter-spacing:.12em; }
+  .poster-vertical { z-index:7; top:clamp(28px,4.4cqh,48px); left:clamp(14px,1.6cqw,26px); writing-mode:vertical-rl; transform:rotate(180deg); font:500 11px/1 var(--pc-display); letter-spacing:.35em; color:var(--pc-ink); white-space:nowrap; }
+  .poster-title { z-index:6; left:4.5%; bottom:15%; width:min(57cqw,95cqh); display:flex; flex-direction:column; align-items:flex-start; gap:clamp(10px,1.6cqw,22px); transform:rotate(-6deg); transform-origin:left bottom; }
+  .poster-title svg { display:block; overflow:visible; }
+  .poster-title-main { width:100%; }
+  .poster-title-main .poster-letters { fill:var(--pc-ink); stroke:var(--pc-cream); stroke-width:7; paint-order:stroke; stroke-linejoin:miter; }
+  .poster-title-main .poster-letters-shadow { fill:var(--pc-red-deep); stroke:var(--pc-red-deep); stroke-width:7; stroke-linejoin:miter; }
+  .poster-title-block { display:block; width:44%; padding:clamp(10px,1.4cqw,20px) clamp(14px,1.9cqw,28px); background:var(--pc-ink); box-shadow:12px 12px 0 var(--pc-red-deep); }
+  .poster-title-sub { width:100%; }
+  .poster-title-sub .poster-letters { fill:var(--pc-cream); }
+  .poster-ribbon { z-index:7; left:0; bottom:clamp(20px,4.6cqh,44px); display:block; padding:12px 64px 12px clamp(24px,3.4cqw,52px); color:var(--pc-cream); background:var(--pc-ink); clip-path:polygon(0 0,100% 0,calc(100% - 26px) 50%,100% 100%,0 100%); font:500 22px/1.15 var(--pc-display); letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+  .poster-ribbon > span { margin-right:12px; color:var(--pc-red); }
+  .poster-ribbon em { color:var(--pc-gold); font-style:normal; }
+  .poster-grain { z-index:20; inset:0; opacity:.2; mix-blend-mode:multiply; pointer-events:none; }
+
+  .account-page.is-login .account-panel { align-self:center; width:min(340px,calc(100% - 64px)); max-width:none; margin:0 auto 0 clamp(32px,calc((100% - 340px) * .4),140px); padding:48px 0; color:var(--pc-cream); }
+  .account-page.is-login .account-panel::before { display:none; }
+  .account-page.is-login .account-panel > .account-kicker { display:flex; align-items:center; gap:12px; margin:0 0 26px; color:var(--pc-gold); font:500 12px/1 var(--pc-display); letter-spacing:.35em; text-transform:uppercase; }
+  .account-page.is-login .account-kicker::before { content:""; width:26px; height:2px; background:var(--pc-red); }
+  .account-page.is-login .account-panel h2 { margin:0 0 14px; color:var(--pc-cream); font:700 50px/1.02 var(--pc-display); letter-spacing:0; text-transform:uppercase; }
+  .account-title-accent { color:var(--pc-red); white-space:nowrap; }
+  .account-page.is-login .account-panel > p { margin:0; color:var(--pc-muted); font-size:14px; }
+  .account-page.is-login .account-panel form { gap:8px; margin-top:30px; }
+  .account-page.is-login .account-panel form > label { margin-top:14px; color:var(--pc-muted); font:500 11px/1.2 var(--pc-display); letter-spacing:.24em; text-transform:uppercase; }
+  .account-page.is-login .account-panel form > label:first-child { margin-top:0; }
+  .account-page.is-login .account-panel input { min-height:46px; color:var(--pc-cream); font:400 15px var(--pc-text); background:var(--pc-field); border:1px solid var(--pc-line); border-radius:0; }
+  .account-page.is-login .account-panel input:focus { outline:none; border-color:var(--pc-red); box-shadow:inset 0 0 0 1px var(--pc-red); }
+  .account-page.is-login .account-panel input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px var(--pc-field) inset; -webkit-text-fill-color:var(--pc-cream); caret-color:var(--pc-cream); }
+  .account-page.is-login .password-visibility { height:38px; color:var(--pc-muted); }
+  .account-page.is-login .password-visibility:hover { color:var(--pc-cream); }
+  .account-page.is-login .account-panel .primary { min-height:50px; margin-top:22px; color:#fff; font:700 15px/1 var(--pc-display); letter-spacing:.2em; text-transform:uppercase; background:var(--pc-red); border:0; border-radius:0; }
+  .account-page.is-login .account-panel .primary:hover:not(:disabled) { background:#d5383c; }
+  .account-page.is-login .account-panel .button:focus-visible, .account-page.is-login .password-visibility:focus-visible { outline:2px solid var(--pc-gold); outline-offset:3px; }
+  .account-page.is-login .account-panel .error-message { color:#ff9e93; font-size:13px; background:#2b1818; border:1px solid #5a2622; border-left:3px solid var(--pc-red); border-radius:0; }
+  .account-page.is-login .account-panel [role=status] { color:var(--pc-gold); }
+  .account-page.is-login .account-links { justify-content:space-between; gap:8px; margin-top:16px; }
+  .account-page.is-login .account-links .button { min-height:36px; padding:6px 0; color:var(--pc-cream); font:400 13px var(--pc-text); text-decoration:none; background:transparent; border:0; }
+  .account-page.is-login .account-links .button:hover:not(:disabled) { color:var(--pc-cream); text-decoration:underline; text-decoration-color:var(--pc-gold); text-underline-offset:4px; background:transparent; }
+  .account-page.is-login .account-panel .account-note { margin-top:30px; padding-top:20px; color:var(--pc-muted); font-size:12px; border-top:1px solid var(--pc-line); }
 }
-@keyframes poster-in { from { opacity:0; transform:translateX(8%); } to { opacity:1; transform:none; } }
-@media (prefers-reduced-motion:reduce) { .poster-wedge { animation:none; } }

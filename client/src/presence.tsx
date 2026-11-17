@@ -1,12 +1,14 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { api, jsonApi } from './api';
-import { AdminPanel, PasswordPanel, useAccount } from './accounts';
+import { AdminPanel, PasswordPanel, SettingsPanel, useAccount } from './accounts';
 import { normalizeHexColor, readableNameColor } from './chat-format';
 import { convertAudio } from './audio-file';
 import { bannerPalette, ProfileAvatar, ProfileCard, ProfileMiniCard } from './profile-card';
 import type { ProfileData } from './profile-card';
-import { AppearanceSettings, prepareBanner } from './profile-appearance-editor';
+import { AppearanceColors, AppearanceSettings, BannerControls, prepareBanner } from './profile-appearance-editor';
+import { EntrySoundEditor } from './entry-sound';
+import { MenuButton, useIsDesktop } from './menu';
 import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
 import type { BannerCrop, ProfilePalette } from './profile-appearance';
 
@@ -94,16 +96,23 @@ function EntrySoundSettings() {
   async function remove() {
     setBusy(true);setMessage('');try{await jsonApi('/api/voice-entry','DELETE');setConfigured(false);setMessage('Som removido. O som padrão será usado.');}catch{setMessage('Não foi possível remover o som.');}finally{setBusy(false);}
   }
-  return <section className="profile-account entry-sound-settings" aria-labelledby="entry-sound-title"><h3 id="entry-sound-title">Som de entrada na call</h3><p>As pessoas na call ouvirão seu som quando você entrar. Até 10 segundos e 8 MB.</p>{loading?<p role="status">Carregando…</p>:<><form onSubmit={save}><label>Escolher áudio<input key={revision} type="file" accept="audio/*" onChange={event=>setFile(event.target.files?.[0]||null)} disabled={busy}/></label><button className="button subtle" disabled={busy||!file}>{busy?'Salvando…':'Salvar som de entrada'}</button></form>{configured&&<div className="entry-sound-preview"><audio controls preload="none" src={'/api/voice-entry/'+user.id+'?v='+revision} aria-label="Ouvir seu som de entrada"/><button type="button" className="button subtle" disabled={busy} onClick={()=>void remove()}>Usar som padrão</button></div>}</>}{message&&<p role="status">{message}</p>}</section>;
+  return <section className="profile-account entry-sound-settings" aria-labelledby="entry-sound-title"><h3 id="entry-sound-title">Som de entrada na call</h3><p>As pessoas na call ouvirão seu som quando você entrar. Até 10 segundos e 8 MB.</p>{loading?<p role="status">Carregando…</p>:<><form onSubmit={save}><label>Escolher áudio<input key={revision} type="file" accept="audio/*" onChange={event=>setFile(event.target.files?.[0]||null)} disabled={busy}/></label><button className="button subtle" disabled={busy||!file}>{busy?'Salvando…':'Salvar som de entrada'}</button></form>{configured&&<div className="entry-sound-preview"><audio controls preload="metadata" src={'/api/voice-entry/'+user.id+'?v='+revision} aria-label="Ouvir seu som de entrada"/><button type="button" className="button subtle" disabled={busy} onClick={()=>void remove()}>Usar som padrão</button></div>}</>}{message&&<p role="status">{message}</p>}</section>;
 }
-// Um único painel reúne foto, apelido, descrição e as opções da conta.
+// Referência do que está salvo, para saber se há alterações pendentes.
+type Baseline = {name:string;status:string;description:string;color:string;crop:BannerCrop;mode:'auto'|'custom';custom:string};
+const IMAGE_TYPES = /^image\/(png|jpeg|webp|gif)$/;
+function PencilIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>;
+}
+// Um único painel reúne foto, apelido, descrição e aparência. No computador, a conta fica no menu do avatar.
 export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'card'|'avatar'}) {
   const {user,renameSelf,authMode,logout} = useAccount();
   const {profiles,refresh,nameColors,statuses,appearance} = usePresence();
+  const desktop = useIsDesktop();
   const [statusText,setStatusText] = useState('');
   const [editing,setEditing] = useState(false);
   const [color,setColor] = useState('');
-  const [panel,setPanel] = useState<'password'|'admin'|null>(null);
+  const [panel,setPanel] = useState<'password'|'admin'|'settings'|null>(null);
   const [name,setName] = useState('');
   const [description,setDescription] = useState('');
   const [file,setFile] = useState<File|null>(null);
@@ -120,6 +129,13 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const [mode,setMode] = useState<'auto'|'custom'>('auto');
   const [custom,setCustom] = useState<ProfilePalette|null>(null);
   const [newPalette,setNewPalette] = useState<{url:string;palette?:ProfilePalette|null}|null>(null);
+  // Editor do computador.
+  const [baseline,setBaseline] = useState<Baseline|null>(null);
+  const [previewMode,setPreviewMode] = useState<'card'|'member'>('card');
+  const [bannerEditing,setBannerEditing] = useState(false);
+  const [audioPending,setAudioPending] = useState(false);
+  const [accountError,setAccountError] = useState('');
+  const avatarInput = useRef<HTMLInputElement>(null), bannerInput = useRef<HTMLInputElement>(null);
   const own = profiles.find(person => person.id === user.id);
   const me = {name:user.name,avatarUrl:own?.avatarUrl ?? null};
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -127,27 +143,41 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   function resetAppearance() { setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setCrop(validCrop(own?.bannerCrop)); setMode(own?.appearanceMode==='custom' ? 'custom' : 'auto'); setCustom(tripleToPalette(own?.customColors)); setNewPalette(null); }
   function chooseBanner(next:File|null) {
     setError('');
-    if (next && !/^image\/(png|jpeg|webp|gif)$/.test(next.type)) { setError('Escolha um banner em PNG, JPG, WebP ou GIF.'); return; }
+    if (next && !IMAGE_TYPES.test(next.type)) { setError('Escolha um banner em PNG, JPG, WebP ou GIF.'); return; }
     if (next && next.size > (next.type==='image/gif' ? 8 : 25)*1024*1024) { setError(next.type==='image/gif' ? 'O banner em GIF deve ter até 8 MB.' : 'Escolha uma imagem de até 25 MB.'); return; }
     const url = next ? URL.createObjectURL(next) : null;
     setBannerFile(next); setBannerPreview(url); setRemoveBanner(false); setCrop(next ? DEFAULT_CROP : validCrop(own?.bannerCrop));
     setNewPalette(url ? {url} : null);
     if (url) bannerPalette(url).then(palette => setNewPalette(current => current?.url===url ? {url,palette} : current)).catch(() => setNewPalette(current => current?.url===url ? {url,palette:null} : current));
   }
-  function open() { setName(user.name); setDescription(own?.description || ''); setColor(own?.nameColor || ''); setStatusText(own?.status || ''); setFile(null); setPreview(null); setRemoveAvatar(false); resetAppearance(); setError(''); setMessage(''); setEditing(true); }
-  function closeEditor() { setEditing(false); setFile(null); setPreview(null); setBannerFile(null); setBannerPreview(null); setRemoveAvatar(false); setError(''); setMessage(''); }
+  const savedState = ():Baseline => ({name:user.name,status:own?.status || '',description:own?.description || '',color:own?.nameColor || '',crop:validCrop(own?.bannerCrop),mode:own?.appearanceMode==='custom' ? 'custom' : 'auto',custom:own?.customColors?.join() ?? ''});
+  function open() { setName(user.name); setDescription(own?.description || ''); setColor(own?.nameColor || ''); setStatusText(own?.status || ''); setFile(null); setPreview(null); setRemoveAvatar(false); resetAppearance(); setError(''); setMessage(''); setBaseline(savedState()); setPreviewMode('card'); setBannerEditing(false); setAudioPending(false); setEditing(true); }
+  function closeEditor() { setEditing(false); setFile(null); setPreview(null); setBannerFile(null); setBannerPreview(null); setRemoveAvatar(false); setRemoveBanner(false); setBannerEditing(false); setError(''); setMessage(''); }
   function choose(next:File|null) {
     setError('');
+    if (next && !IMAGE_TYPES.test(next.type)) { setError('Escolha uma foto em PNG, JPG, WebP ou GIF.'); return; }
     if (next && next.size > 8*1024*1024) { setError('A imagem deve ter até 8 MB.'); return; }
     setFile(next); setRemoveAvatar(false); setPreview(next ? URL.createObjectURL(next) : null);
   }
-  async function save(event:FormEvent) {
-    event.preventDefault();
+  const chosenColor = color.trim() ? normalizeHexColor(color) : null;
+  const colorProblem = color.trim() && !chosenColor ? 'Digite a cor no formato #RRGGBB, por exemplo #FF8800.' : chosenColor && !readableNameColor(chosenColor) ? 'Essa cor é escura demais para ler no fundo do chat. Escolha uma mais clara.' : '';
+  const trimmedName = name.trim();
+  const nameProblem = trimmedName.length < 2 || trimmedName.length > 32 ? 'O apelido precisa ter de 2 a 32 caracteres.' : '';
+  const invalid = Boolean(nameProblem || colorProblem || statusText.trim().length > 60 || description.length > 200);
+  const sameCrop = (a:BannerCrop,b:BannerCrop) => a.x===b.x && a.y===b.y && a.zoom===b.zoom;
+  const dirty = Boolean(baseline) && (trimmedName!==baseline!.name || (statuses && statusText.trim()!==baseline!.status) || description!==baseline!.description
+    || (nameColors && (chosenColor ?? color.trim())!==baseline!.color) || Boolean(file) || removeAvatar
+    || (appearance && (Boolean(bannerFile) || removeBanner || !sameCrop(crop,baseline!.crop) || mode!==baseline!.mode || (custom ? paletteToTriple(custom).join() : '')!==baseline!.custom)));
+  async function save(event?:FormEvent) {
+    event?.preventDefault();
+    if (saving) return;
     if (colorProblem) { setError(colorProblem); return; }
+    if (desktop && (!dirty || invalid)) return;
     setSaving(true); setError(''); setMessage('');
+    let renamed = false;
     try {
-      const nextName = name.trim();
-      if (nextName !== user.name) await renameSelf(nextName);
+      // O apelido usa outra rota: se ela der certo e o resto falhar, a mensagem diz exatamente isso.
+      if (trimmedName !== user.name) { await renameSelf(trimmedName); renamed = true; setBaseline(current => current && {...current,name:trimmedName}); }
       let avatarId = removeAvatar ? null : own?.avatarUrl?.split('/').pop() ?? null;
       if (file) {
         avatarId = crypto.randomUUID();
@@ -167,29 +197,112 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
         autoPalette = palette ? paletteToTriple(palette) : null;
       } else if (appearance && bannerId && !autoPalette && own?.bannerUrl) autoPalette = await bannerPalette(own.bannerUrl).then(paletteToTriple).catch(() => null);
       await jsonApi('/api/profile','PATCH',{description,avatarId,...(nameColors?{nameColor:chosenColor}:{}),...(statuses?{status:statusText}:{}),...(appearance?{bannerId,bannerCrop:crop,appearanceMode:mode,customColors:custom?paletteToTriple(custom):null,autoPalette}:{})});
-      await refresh(); setFile(null); setPreview(null); setRemoveAvatar(false); setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setNewPalette(null); setMessage('Perfil salvo.');
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível salvar.'); }
+      setBaseline({name:trimmedName,status:statusText.trim(),description,color:chosenColor ?? '',crop,mode,custom:custom ? paletteToTriple(custom).join() : ''});
+      setFile(null); setPreview(null); setRemoveAvatar(false); setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setNewPalette(null); setBannerEditing(false);
+      setMessage(desktop ? 'Alterações salvas.' : 'Perfil salvo.');
+      try { await refresh(); } catch { setMessage('Alterações salvas. A lista de membros será atualizada em instantes.'); }
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : 'Tente novamente.';
+      setError(renamed ? 'O apelido foi salvo, mas o restante não: ' + reason + ' As outras alterações continuam aqui para você tentar de novo.' : 'Nada foi salvo. ' + reason);
+    }
     finally { setSaving(false); }
   }
-  const chosenColor = color.trim() ? normalizeHexColor(color) : null;
-  const colorProblem = color.trim() && !chosenColor ? 'Digite a cor no formato #RRGGBB, por exemplo #FF8800.' : chosenColor && !readableNameColor(chosenColor) ? 'Essa cor é escura demais para ler no fundo do chat. Escolha uma mais clara.' : '';
+  // Fechar, cancelar ou Escape descartam o rascunho, pedindo confirmação só quando há algo pendente.
+  function requestClose() {
+    if (saving) return;
+    if ((dirty || audioPending) && !window.confirm('Descartar as alterações que ainda não foram salvas?')) return;
+    closeEditor();
+  }
+  async function leave() {
+    setAccountError('');
+    try { await logout(); }
+    catch (cause) { setAccountError('Não foi possível sair da conta. ' + (cause instanceof Error ? cause.message : 'Tente novamente.')); }
+  }
   const shown = {name:name.trim() || user.name, avatarUrl:removeAvatar ? null : preview || me.avatarUrl};
   const shownBanner = removeBanner ? null : bannerPreview || own?.bannerUrl || null;
   const previewProfile:ProfileData = {...(own ?? {id:user.id,description:''}), name:shown.name, avatarUrl:shown.avatarUrl, nameColor:chosenColor && !colorProblem ? chosenColor : null, status:statusText.trim(), description, bannerUrl:shownBanner, bannerCrop:crop, appearanceMode:mode, customColors:custom ? paletteToTriple(custom) : null, autoPalette:bannerFile || removeBanner ? null : own?.autoPalette ?? null};
   const savedCrop = validCrop(own?.bannerCrop), savedCustom = own?.customColors?.join() ?? '';
   const appearanceChanged = Boolean(bannerFile) || removeBanner || crop.x!==savedCrop.x || crop.y!==savedCrop.y || crop.zoom!==savedCrop.zoom || mode!==(own?.appearanceMode==='custom' ? 'custom' : 'auto') || (custom ? paletteToTriple(custom).join() : '')!==savedCustom;
   const autoStatus = !shownBanner ? 'none' : bannerFile ? newPalette?.palette===undefined ? 'loading' : newPalette.palette ? 'ready' : 'failed' : 'ready';
+  const accountPanels = <>
+    {panel==='settings' && <SettingsPanel onClose={() => setPanel(null)} onPassword={() => setPanel('password')} onAdmin={() => setPanel('admin')}/>}
+    {panel==='password' && <PasswordPanel onClose={() => setPanel(null)}/>}
+    {panel==='admin' && <AdminPanel onClose={() => setPanel(null)}/>}
+  </>;
   const trigger = variant==='avatar'
-    ? <button className="header-avatar-button" disabled={!own} onClick={open} aria-label="Meu perfil e conta" title="Meu perfil e conta"><Avatar person={me}/></button>
-    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label="Meu perfil e conta"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil e conta"><GearIcon/></span></button>;
+    ? desktop
+      ? <><MenuButton label="Menu da conta" className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:open,disabled:!own},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/></MenuButton>
+        {accountError && <div className="account-menu-error" role="alert"><span>{accountError}</span><button type="button" className="icon-button" onClick={() => setAccountError('')} aria-label="Fechar aviso">×</button></div>}</>
+      : <button className="header-avatar-button" disabled={!own} onClick={open} aria-label="Meu perfil e conta" title="Meu perfil e conta"><Avatar person={me}/></button>
+    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label={desktop ? 'Meu perfil' : 'Meu perfil e conta'}><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title={desktop ? 'Meu perfil' : 'Meu perfil e conta'}><GearIcon/></span></button>;
+
+  if (desktop) {
+    const hasAvatar = Boolean(shown.avatarUrl), hasBanner = Boolean(shownBanner);
+    const editMenu = <MenuButton label="Editar foto e banner" className="profile-media-menu" items={[
+      {label:'Trocar foto ou GIF', onSelect:() => avatarInput.current?.click(), disabled:saving},
+      {label:'Remover foto', onSelect:() => { choose(null); setRemoveAvatar(Boolean(own?.avatarUrl)); }, hidden:!hasAvatar, disabled:saving},
+      {label:'Editar banner', onSelect:() => { setPreviewMode('card'); setBannerEditing(true); }, hidden:!appearance, disabled:saving},
+      {label:'Remover banner', onSelect:() => { chooseBanner(null); setRemoveBanner(Boolean(own?.bannerUrl)); setBannerEditing(false); }, hidden:!appearance || !hasBanner, disabled:saving},
+    ]}><PencilIcon/></MenuButton>;
+    return <>{trigger}
+      {editing && <dialog className="admin-dialog profile-settings profile-editor" ref={element => {if(element && !element.open)element.showModal();}} onCancel={event => { event.preventDefault(); requestClose(); }} aria-labelledby="profile-editor-title">
+        <header><h2 id="profile-editor-title">Meu perfil</h2><button type="button" className="button subtle profile-editor-close" onClick={requestClose} aria-label="Fechar editor de perfil">×</button></header>
+        <div className="profile-editor-body">
+          <div className="profile-editor-grid">
+            <form id="profile-edit-form" className="profile-editor-fields" onSubmit={event => void save(event)}>
+              <div className="profile-field-group">
+                <div className="profile-field"><label htmlFor="profile-name">Apelido</label><input id="profile-name" value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={32} required autoComplete="nickname" disabled={saving} aria-invalid={Boolean(nameProblem)} aria-describedby="profile-name-help"/><small id="profile-name-help" className={nameProblem && name ? 'field-help field-error' : 'field-help'}>{nameProblem && name ? nameProblem : authMode==='supabase' ? 'É como você aparece no chat. Seu e-mail de acesso continua o mesmo.' : 'É como você aparece no chat e também o usuário para entrar. A senha continua a mesma.'}</small></div>
+                {statuses && <div className="profile-field"><label htmlFor="profile-status">Status</label><input id="profile-status" value={statusText} onChange={event => setStatusText(event.target.value)} maxLength={60} placeholder="Ex.: jogando Valorant 🎮" enterKeyHint="done" disabled={saving} aria-describedby="profile-status-help"/><small id="profile-status-help" className="field-help">Aparece embaixo do seu nome para todo mundo. {statusText.length}/60</small></div>}
+                <div className="profile-field"><label htmlFor="profile-description">Descrição</label><textarea id="profile-description" maxLength={200} value={description} onChange={event => setDescription(event.target.value)} placeholder="Conta um pouco sobre você" disabled={saving} aria-describedby="profile-description-help"/><small id="profile-description-help" className="field-help">{description.length}/200</small></div>
+              </div>
+              {nameColors && <fieldset className="name-color-field">
+                <legend>Cor do nick</legend>
+                <div className="name-color-inputs">
+                  <input type="color" aria-label="Escolher cor do nick" value={chosenColor || '#eee8dc'} onChange={event => setColor(event.target.value)} disabled={saving}/>
+                  <input aria-label="Código da cor em hexadecimal" value={color} onChange={event => setColor(event.target.value)} placeholder="#FF8800" maxLength={7} spellCheck={false} autoCapitalize="off" autoComplete="off" disabled={saving} aria-invalid={Boolean(colorProblem)} aria-describedby="name-color-help"/>
+                  <button type="button" className="button subtle" onClick={() => setColor('')} disabled={saving || !color}>Sem cor</button>
+                </div>
+                <div className="name-color-swatches" role="group" aria-label="Sugestões de cor">{COLOR_SUGGESTIONS.map(value => <button type="button" key={value} style={{background:value}} aria-label={'Usar a cor '+value} aria-pressed={chosenColor===value} onClick={() => setColor(value)} disabled={saving}/>)}</div>
+                <small id="name-color-help" className={colorProblem ? 'field-help field-error' : 'field-help'}>{colorProblem || 'Toque no quadrado colorido ou digite o código, como #FF8800.'}</small>
+                <button type="button" className="button subtle name-color-check" onClick={() => setPreviewMode('member')} aria-pressed={previewMode==='member'}>Ver no cartão de membros</button>
+              </fieldset>}
+              {appearance && <section className="profile-colors-section" aria-label="Cores do perfil"><AppearanceColors mode={mode} setMode={setMode} custom={custom} setCustom={setCustom} hasBanner={hasBanner} autoStatus={autoStatus} disabled={saving}/></section>}
+            </form>
+            <aside className="profile-editor-preview" aria-labelledby="profile-preview-title">
+              <div className="profile-preview-head">
+                <h3 id="profile-preview-title">Prévia do perfil</h3>
+                <div className="preview-switch" role="group" aria-label="Tipo de prévia">
+                  <button type="button" aria-pressed={previewMode==='card'} onClick={() => setPreviewMode('card')}>Perfil completo</button>
+                  <button type="button" aria-pressed={previewMode==='member'} onClick={() => { setPreviewMode('member'); setBannerEditing(false); }}>Cartão de membros</button>
+                </div>
+              </div>
+              {previewMode==='card'
+                ? <ProfileCard profile={previewProfile} actions={editMenu} onBannerPan={bannerEditing && !saving ? setCrop : undefined}/>
+                : <div className="member-card-preview"><div className="member-card-preview-stage"><ProfileMiniCard profile={previewProfile} calls={[]} preview/></div><div className="member-card-preview-edit">{editMenu}</div><small className="field-help">Mesmo cartão, largura e cores da lista de membros.</small></div>}
+              {bannerEditing && previewMode==='card' && <BannerControls crop={crop} setCrop={setCrop} hasBanner={hasBanner} disabled={saving} onPickBanner={() => bannerInput.current?.click()} onDone={() => setBannerEditing(false)}/>}
+              <input ref={avatarInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) choose(next); event.target.value=''; }}/>
+              <input ref={bannerInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" tabIndex={-1} aria-hidden="true" onChange={event => { const next = event.target.files?.[0]; if (next) chooseBanner(next); event.target.value=''; }}/>
+            </aside>
+          </div>
+          <EntrySoundEditor onPendingChange={setAudioPending}/>
+        </div>
+        <footer className="profile-editor-footer">
+          <div className="profile-editor-status" aria-live="polite">{error ? <p className="error-message" role="alert">{error}</p> : message && !dirty ? <p className="profile-saved">{message}</p> : dirty ? <p>Alterações não salvas.</p> : null}</div>
+          <button type="button" className="button subtle" onClick={requestClose} disabled={saving}>Cancelar</button>
+          <button type="submit" form="profile-edit-form" className="button primary" disabled={!dirty || invalid || saving}>{saving ? 'Salvando…' : 'Salvar alterações'}</button>
+        </footer>
+      </dialog>}
+      {accountPanels}
+    </>;
+  }
   return <>{trigger}
     {editing && <dialog className="admin-dialog profile-settings" ref={element => {if(element && !element.open)element.showModal();}} onCancel={closeEditor} aria-label="Meu perfil">
       <header><h2>Meu perfil</h2><button className="button subtle" onClick={closeEditor}>Fechar</button></header>
-      <form onSubmit={save}>
+      <form onSubmit={event => void save(event)}>
         <div className="profile-preview">
           <Avatar person={shown} className="member-avatar profile-preview-avatar"/>
           <div className="profile-photo-actions">
-            <label className="button subtle profile-photo-pick">Trocar foto ou GIF<input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => {choose(event.target.files?.[0] || null); event.target.value='';}} disabled={saving}/></label>
+            <label className="button subtle profile-photo-pick">Trocar foto ou GIF<input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { const next = event.target.files?.[0]; if (next) choose(next); event.target.value=''; }} disabled={saving}/></label>
             {(own?.avatarUrl || file) && <button type="button" className="button subtle" disabled={saving} onClick={() => { if (file) choose(null); else setRemoveAvatar(!removeAvatar); }}>{file ? 'Descartar nova foto' : removeAvatar ? 'Manter foto atual' : 'Remover foto'}</button>}
             <small>PNG, JPG, WebP ou GIF, até 8 MB.</small>
           </div>
@@ -222,12 +335,12 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
         <div className="profile-account-actions">
           <button type="button" className="button subtle" onClick={() => {closeEditor(); setPanel('password');}}>Alterar senha</button>
           {user.role==='admin' && <button type="button" className="button subtle" onClick={() => {closeEditor(); setPanel('admin');}}>Administrar comunidade</button>}
-          <button type="button" className="button subtle danger" onClick={logout}>Sair da conta</button>
+          <button type="button" className="button subtle danger" onClick={() => void leave()}>Sair da conta</button>
         </div>
+        {accountError && <p className="error-message" role="alert">{accountError}</p>}
       </section>
     </dialog>}
-    {panel==='password' && <PasswordPanel onClose={() => setPanel(null)}/>}
-    {panel==='admin' && <AdminPanel onClose={() => setPanel(null)}/>}
+    {accountPanels}
   </>;
 }
 // Painel de membros: quem está em call, quem está online e quem está offline.

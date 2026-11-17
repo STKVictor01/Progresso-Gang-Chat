@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { CSSProperties, FocusEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { ensureContrast, memberSinceLabel, paletteFromBannerPixels, paletteVars, resolvePalette, validCrop } from './profile-appearance';
 import type { AppearanceSource, BannerCrop, ProfilePalette } from './profile-appearance';
 
@@ -82,7 +82,7 @@ export function ProfileCard({profile,actions,children,onBannerPan,headingId}:Car
   const crop = validCrop(profile.bannerCrop);
   const [drag,setDrag] = useState<{x:number;y:number;crop:BannerCrop;width:number;height:number}|null>(null);
   const pan = onBannerPan && profile.bannerUrl ? {
-    onPointerDown:(event:ReactPointerEvent<HTMLDivElement>) => { const rect=event.currentTarget.getBoundingClientRect(); event.currentTarget.setPointerCapture(event.pointerId); setDrag({x:event.clientX,y:event.clientY,crop,width:rect.width,height:rect.height}); },
+    onPointerDown:(event:ReactPointerEvent<HTMLDivElement>) => { if ((event.target as HTMLElement).closest('.profile-card-actions')) return; const rect=event.currentTarget.getBoundingClientRect(); event.currentTarget.setPointerCapture(event.pointerId); setDrag({x:event.clientX,y:event.clientY,crop,width:rect.width,height:rect.height}); },
     onPointerMove:(event:ReactPointerEvent<HTMLDivElement>) => {
       if (!drag) return;
       const factor = 100/(drag.crop.zoom/100);
@@ -113,7 +113,8 @@ export function ProfileCard({profile,actions,children,onBannerPan,headingId}:Car
 }
 
 // Cartão compacto da lista de membros: miniatura do banner ao fundo e texto sobre o gradiente.
-export function ProfileMiniCard({profile,calls,onOpen}:{profile:ProfileData;calls:string[];onOpen:()=>void}) {
+// Com `preview`, é o mesmo cartão sem ação de clique (usado no editor de perfil).
+export function ProfileMiniCard({profile,calls,onOpen,preview=false}:{profile:ProfileData;calls:string[];onOpen?:()=>void;preview?:boolean}) {
   const vars = useProfileVars(profile);
   const callColor = ensureContrast('#ff8b7f',[vars['--pf-primary']],4.5);
   const [hovered,setHovered] = useState(false);
@@ -125,16 +126,18 @@ export function ProfileMiniCard({profile,calls,onOpen}:{profile:ProfileData;call
     query.addEventListener('change',changed);
     return () => query.removeEventListener('change',changed);
   }, []);
-  const animate = !reducedMotion && (hovered || focused);
-  return <button className="online-profile-button profile-mini" style={vars as CSSProperties} onClick={onOpen} aria-label={'Ver perfil de '+profile.name}
-    onPointerEnter={event => { if (event.pointerType!=='touch') setHovered(true); }} onPointerLeave={() => setHovered(false)}
-    onFocus={event => setFocused(event.currentTarget.matches(':focus-visible'))} onBlur={() => setFocused(false)}>
+  const animate = !preview && !reducedMotion && (hovered || focused);
+  const Tag = preview ? 'div' : 'button';
+  const behavior = preview ? {role:'group','aria-label':'Prévia do cartão de membros de '+profile.name} : {onClick:onOpen,'aria-label':'Ver perfil de '+profile.name,
+    onPointerEnter:(event:ReactPointerEvent<HTMLElement>) => { if (event.pointerType!=='touch') setHovered(true); }, onPointerLeave:() => setHovered(false),
+    onFocus:(event:FocusEvent<HTMLElement>) => setFocused(event.currentTarget.matches(':focus-visible')), onBlur:() => setFocused(false)};
+  return <Tag className={'online-profile-button profile-mini'+(preview ? ' is-preview' : '')+(profile.bannerUrl ? ' has-banner' : '')} style={vars as CSSProperties} {...behavior}>
     {profile.bannerUrl && <span className="profile-mini-banner" aria-hidden="true"><BannerImage url={profile.bannerUrl} crop={profile.bannerCrop} thumbnail/>{animate && <BannerImage url={profile.bannerUrl} crop={profile.bannerCrop}/>}</span>}
     <span className="online-avatar"><ProfileAvatar person={profile}/><i aria-hidden="true"/></span>
     <span className="profile-mini-copy">
-      <strong style={{color:readableName(profile.nameColor,vars)}}>{profile.name}{profile.badges?.includes('founder') && <FounderBadge compact/>}</strong>
+      <strong className="profile-mini-name" style={{color:readableName(profile.nameColor,vars)}}><span>{profile.name}</span>{profile.badges?.includes('founder') && <FounderBadge compact/>}</strong>
       {calls.length > 0 && <small className="online-voice-status" style={{color:callColor}}>Na call · {calls.join(', ')}</small>}
       {profile.status ? <small className="custom-status">{profile.status}</small> : !calls.length && profile.description ? <small>{profile.description}</small> : null}
     </span>
-  </button>;
+  </Tag>;
 }

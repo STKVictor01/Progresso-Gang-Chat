@@ -1368,3 +1368,161 @@ input::placeholder { color: var(--muted); }
 .profile-mini:not(:has(.profile-mini-banner)) .profile-mini-copy { padding-inline:0; background:transparent; }
 /* No celular, o login fica só com a faixa do topo para não disputar com o nome. */
 @media (max-width:700px) { .account-story::after { display:none; } }
+
+/* ==========================================================================
+   V9 — Editor de perfil, conta, som de entrada e cartões (computador),
+   e o login normal no computador. O celular mantém a organização anterior.
+   ========================================================================== */
+
+/* ---------- Menus (avatar do cabeçalho e lápis da prévia) ---------- */
+.popover-menu { position:fixed; z-index:1000; display:flex; flex-direction:column; min-width:210px; padding:6px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+.popover-menu-item { display:flex; align-items:center; min-height:40px; padding:8px 12px; color:var(--text); font-size:var(--font-md); text-align:left; background:transparent; border:0; border-radius:var(--radius-sm); cursor:pointer; }
+.popover-menu-item:hover:not(:disabled) { background:var(--raised); }
+.popover-menu-item:focus-visible { outline:2px solid var(--rose); outline-offset:-2px; background:var(--raised); }
+.popover-menu-item.danger { color:var(--danger); }
+@media (min-width:768px) {
+  .page-header .header-avatar-button { display:grid; cursor:pointer; }
+  .page-header .header-avatar-button:hover .member-avatar, .page-header .header-avatar-button[aria-expanded=true] .member-avatar { border-color:var(--terracotta); }
+}
+.account-menu-error { position:fixed; z-index:95; top:72px; right:16px; display:flex; align-items:center; gap:10px; max-width:min(380px,90vw); padding:10px 14px; color:var(--text); font-size:var(--font-sm); background:var(--panel); border:1px solid var(--danger-line); border-left:3px solid var(--danger); border-radius:var(--radius); box-shadow:var(--shadow); }
+.account-menu-error .icon-button { min-width:32px; min-height:32px; color:var(--text); background:transparent; border:0; cursor:pointer; }
+.settings-section { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:18px 0; border-bottom:1px solid var(--line-soft); }
+.settings-section:last-child { border-bottom:0; }
+.settings-section h3 { margin:0; font-size:var(--font-lg); }
+.settings-section p { margin:0; }
+
+/* ---------- Editor de perfil (computador) ---------- */
+.admin-dialog.profile-editor { width:min(1080px,calc(100vw - 32px)); max-height:min(92dvh,980px); padding:0; overflow:hidden; }
+.admin-dialog.profile-editor[open] { display:flex; flex-direction:column; }
+.profile-editor > header { flex-shrink:0; margin:0; padding:18px 24px 14px; }
+.profile-editor > header::after { left:24px; }
+.profile-editor .profile-editor-close { width:40px; min-width:40px; height:40px; min-height:40px; padding:0; font-size:22px; line-height:1; }
+/* position:relative mantém dentro da área que rola os campos de arquivo ocultos (.sr-only), que senão esticariam o diálogo. */
+.profile-editor-body { position:relative; display:flex; flex:1; flex-direction:column; gap:24px; min-height:0; padding:22px 24px 28px; overflow-y:auto; overscroll-behavior:contain; }
+.profile-editor-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(320px,400px); align-items:start; gap:28px; }
+.profile-settings form.profile-editor-fields { display:flex; flex-direction:column; gap:20px; margin:0; }
+.profile-field-group { display:flex; flex-direction:column; gap:16px; padding:16px; background:var(--bg-2); border:1px solid var(--line-soft); border-radius:var(--radius); }
+.profile-field { display:flex; flex-direction:column; gap:6px; }
+.profile-settings .profile-field label { margin:0; font-size:var(--font-md); }
+.profile-field textarea { min-height:96px; padding:10px 12px; color:var(--text); background:var(--bg); }
+.profile-field .field-help, .profile-editor .field-help { margin:0; font-size:var(--font-xs); }
+.profile-editor .field-error { color:var(--danger); }
+.profile-editor .name-color-field { margin:0; }
+.profile-editor .name-color-check { align-self:flex-start; margin-top:4px; }
+.profile-colors-section { padding:16px; border:1px solid var(--line-soft); border-radius:var(--radius); }
+.profile-editor-preview { position:sticky; top:0; display:flex; flex-direction:column; gap:12px; }
+.profile-preview-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
+.profile-preview-head h3 { margin:0; font-size:var(--font-md); }
+.preview-switch { display:inline-flex; padding:3px; background:var(--bg); border:1px solid var(--line); border-radius:999px; }
+.preview-switch button { min-height:32px; padding:4px 12px; color:var(--text-2); font-size:var(--font-xs); font-weight:600; background:transparent; border:0; border-radius:999px; cursor:pointer; }
+.preview-switch button:hover { color:var(--text); }
+.preview-switch button[aria-pressed=true] { color:var(--text); background:var(--accent-soft); box-shadow:inset 0 0 0 1px var(--terracotta); }
+.profile-media-menu { display:grid; place-items:center; width:40px; height:40px; color:#fff; background:#000000a6; border:1px solid #ffffff4d; border-radius:50%; cursor:pointer; }
+.profile-media-menu:hover, .profile-media-menu[aria-expanded=true] { background:#000000d9; border-color:#ffffffa6; }
+.member-card-preview { position:relative; display:flex; flex-direction:column; gap:10px; padding:16px; background:var(--surface); border:1px dashed var(--line); border-radius:var(--radius); }
+/* Mesma largura útil do cartão no painel de membros: 248 px − 24 px de respiro − 1 px de borda (264 px a partir de 1600 px). */
+.member-card-preview-stage { width:223px; max-width:100%; }
+@media (min-width:1600px) { .member-card-preview-stage { width:239px; } }
+.member-card-preview-edit { position:absolute; top:10px; right:10px; }
+.member-card-preview-edit .profile-media-menu { color:var(--text); background:var(--raised); border-color:var(--line); }
+.banner-controls { display:flex; flex-direction:column; gap:10px; padding:14px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); }
+.banner-controls-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.banner-controls-heading h3 { margin:0; font-size:var(--font-md); }
+.banner-controls .button { align-self:flex-start; }
+.banner-controls .profile-crop { grid-template-columns:1fr; }
+.profile-crop-slider > span { display:flex; justify-content:space-between; }
+.profile-crop-slider output { color:var(--muted); font-variant-numeric:tabular-nums; }
+.profile-editor .profile-card-banner.pannable { outline:2px dashed var(--rose); outline-offset:-2px; }
+.profile-editor-footer { display:flex; flex-shrink:0; align-items:center; gap:10px; padding:14px 24px; background:var(--panel); border-top:1px solid var(--line); }
+.profile-editor-status { flex:1; min-width:0; }
+.profile-editor-status p { margin:0; color:var(--text-2); font-size:var(--font-sm); }
+.profile-editor-status .error-message { color:var(--danger); }
+.profile-editor-status .profile-saved { color:var(--success); }
+.profile-editor-footer .button { min-height:44px; }
+@media (max-width:1000px) {
+  .profile-editor-grid { grid-template-columns:minmax(0,1fr); }
+  .profile-editor-preview { position:static; order:-1; }
+}
+
+/* ---------- Som de entrada (computador) ---------- */
+.entry-sound-editor { display:flex; flex-direction:column; gap:12px; padding:18px; border:1px solid var(--line-soft); border-radius:var(--radius); }
+.entry-sound-intro h3 { margin:0 0 4px; font-size:var(--font-lg); }
+.entry-sound-intro p, .entry-sound-empty { margin:0; color:var(--text-2); font-size:var(--font-sm); }
+.entry-sound-pick { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.entry-sound-pick small { color:var(--muted); font-size:var(--font-xs); }
+.entry-sound-upload { cursor:pointer; }
+.entry-sound-upload:focus-within { outline:2px solid var(--rose); outline-offset:2px; }
+.entry-sound-upload.is-disabled { opacity:.5; cursor:not-allowed; }
+.audio-preview { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.audio-preview audio { max-width:100%; height:40px; }
+.audio-duration { color:var(--text-2); font-size:var(--font-sm); font-variant-numeric:tabular-nums; }
+.entry-sound-selection { display:flex; flex-direction:column; align-items:flex-start; gap:10px; padding:14px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); }
+.entry-sound-file { display:flex; justify-content:space-between; gap:12px; width:100%; margin:0; font-size:var(--font-sm); }
+.entry-sound-file strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.entry-sound-file span { flex-shrink:0; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.audio-trim { display:flex; flex-direction:column; gap:10px; width:100%; }
+.audio-trim p { margin:0; color:var(--text-2); font-size:var(--font-sm); }
+.audio-trim label { display:flex; flex-direction:column; gap:4px; font-size:var(--font-sm); font-weight:600; }
+.audio-trim label > span { display:flex; justify-content:space-between; }
+.audio-trim output { color:var(--rose); font-variant-numeric:tabular-nums; }
+.admin-dialog .audio-trim input[type=range], .admin-dialog .profile-crop-slider input[type=range] { width:100%; min-height:32px; padding:0; background:transparent; border:0; accent-color:var(--terracotta); cursor:pointer; }
+.audio-trim-length { font-variant-numeric:tabular-nums; }
+.audio-trim-actions, .entry-sound-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.entry-sound-actions { justify-content:flex-end; }
+.profile-editor label.button { cursor:pointer; }
+
+/* ---------- Cartões de membros (computador) ----------
+   Uma unidade só: banner integrado, gradiente de contraste e texto sem caixa opaca. */
+@media (min-width:768px) {
+  .online-profile-button.profile-mini { display:flex; align-items:center; gap:10px; width:100%; min-height:56px; max-height:72px; padding:8px 10px; overflow:hidden; }
+  .online-profile-button.profile-mini .online-avatar { flex-shrink:0; }
+  .online-profile-button.profile-mini .profile-mini-copy { flex:1 1 auto; min-width:0; max-width:none; padding:0; background:none; border-radius:0; text-shadow:0 1px 2px color-mix(in srgb,var(--pf-primary) 85%,transparent); }
+  .online-profile-button.profile-mini .profile-mini-name { display:flex; align-items:center; gap:4px; min-width:0; font-size:var(--font-sm); font-weight:600; line-height:1.3; }
+  .online-profile-button.profile-mini .profile-mini-name > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .online-profile-button.profile-mini .profile-mini-name .founder-badge.compact { flex-shrink:0; margin-left:2px; text-shadow:none; }
+  .online-profile-button.profile-mini .profile-mini-copy small { display:block; margin-top:2px; overflow:hidden; font-size:var(--font-xs); line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+  .online-profile-button.profile-mini .profile-mini-banner { overflow:hidden; }
+  .online-profile-button.profile-mini .profile-mini-banner::after { background:linear-gradient(90deg,var(--pf-primary) 0%,color-mix(in srgb,var(--pf-primary) 92%,transparent) 50%,color-mix(in srgb,var(--pf-primary) 55%,transparent) 100%); }
+  .online-profile-button.profile-mini.is-preview { cursor:default; }
+}
+
+/* ---------- Login normal no computador: cartaz gráfico ----------
+   Vermelho profundo, papel creme, grafite e dourado discreto. Só blocos e linhas, sem ilustrações. */
+.account-poster { display:none; }
+@media (min-width:821px) {
+  .account-page.is-login {
+    --poster-red:#b3302a; --poster-red-deep:#8a231e; --poster-paper:#eee4cd; --poster-paper-2:#e2d5b6; --poster-ink:#1c1a19; --poster-ink-2:#2a2725; --poster-line:#4b4541; --poster-gold:#c8a24f; --poster-cream-text:#f3ead6; --poster-muted:#c9bea8;
+    grid-template-columns:minmax(0,1.15fr) minmax(440px,.85fr); background:var(--poster-ink);
+  }
+  .account-page.is-login .account-story { position:relative; isolation:isolate; justify-content:flex-end; gap:22px; padding:clamp(48px,6vw,96px); overflow:hidden; color:var(--poster-ink); background:var(--poster-paper); border-right:6px solid var(--poster-red); }
+  .account-page.is-login .account-story::before, .account-page.is-login .account-story::after { display:none; }
+  .account-page.is-login .account-poster { position:absolute; z-index:-1; inset:0; display:block; pointer-events:none; }
+  .account-page.is-login .account-poster > span { position:absolute; display:block; }
+  .poster-wedge { top:-12%; right:-14%; width:72%; height:78%; background:var(--poster-red); clip-path:polygon(34% 0,100% 0,100% 100%,0 64%); animation:poster-in .7s cubic-bezier(.2,.7,.2,1) both; }
+  .poster-sun { top:13%; right:15%; width:clamp(110px,13vw,210px); aspect-ratio:1; background:var(--poster-paper); border-radius:50%; box-shadow:0 0 0 12px var(--poster-red-deep),0 0 0 16px var(--poster-gold); }
+  .poster-bar { left:-4%; bottom:58%; width:56%; height:20px; background:var(--poster-ink); transform:rotate(-7deg); transform-origin:left center; }
+  .poster-rule { left:clamp(48px,6vw,96px); bottom:clamp(36px,4.5vw,72px); width:140px; height:5px; background:var(--poster-gold); }
+  .account-page.is-login .account-hero { gap:18px; margin-top:0; }
+  .account-page.is-login .account-mark { width:76px; height:76px; color:var(--brand-logo); }
+  .account-page.is-login .account-story h1 { max-width:11ch; color:var(--poster-ink); font-size:clamp(56px,6.2vw,104px); font-weight:900; line-height:.92; letter-spacing:-.045em; text-transform:uppercase; }
+  .account-page.is-login .account-tagline { max-width:32ch; margin:0 0 28px; padding-left:16px; color:var(--poster-red-deep); font-size:clamp(18px,1.55vw,24px); font-style:normal; font-weight:800; line-height:1.3; border-left:6px solid var(--poster-red); }
+  .account-page.is-login .account-panel { padding:clamp(40px,5vw,80px); color:var(--poster-cream-text); }
+  .account-page.is-login .account-panel::before { content:""; display:block; width:72px; height:8px; margin-bottom:28px; background:var(--poster-red); }
+  .account-page.is-login .account-panel h2 { margin:0 0 10px; color:var(--poster-cream-text); font-size:clamp(34px,3vw,46px); font-weight:900; letter-spacing:-.03em; }
+  .account-page.is-login .account-panel > p, .account-page.is-login .account-note { color:var(--poster-muted); }
+  .account-page.is-login .account-panel form > label, .account-page.is-login .account-panel label { color:var(--poster-cream-text); font-weight:700; letter-spacing:.01em; }
+  .account-page.is-login .account-panel small { color:var(--poster-muted); }
+  .account-page.is-login .account-panel input { color:var(--poster-cream-text); background:var(--poster-ink-2); border:2px solid var(--poster-line); border-radius:2px; }
+  .account-page.is-login .account-panel input:focus-visible { outline:2px solid var(--poster-gold); outline-offset:2px; border-color:var(--poster-gold); }
+  .account-page.is-login .account-panel input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px var(--poster-ink-2) inset; -webkit-text-fill-color:var(--poster-cream-text); caret-color:var(--poster-cream-text); }
+  .account-page.is-login .password-visibility { color:var(--poster-cream-text); }
+  .account-page.is-login .account-panel .primary { color:#fff; font-weight:800; letter-spacing:.06em; text-transform:uppercase; background:var(--poster-red); border:0; border-radius:2px; }
+  .account-page.is-login .account-panel .primary:hover:not(:disabled) { background:var(--poster-red-deep); }
+  .account-page.is-login .account-panel .primary:focus-visible, .account-page.is-login .account-panel .button:focus-visible { outline:2px solid var(--poster-gold); outline-offset:3px; }
+  .account-page.is-login .account-panel .subtle { color:var(--poster-cream-text); border-color:var(--poster-line); border-radius:2px; }
+  .account-page.is-login .account-panel .subtle:hover:not(:disabled) { background:var(--poster-ink-2); border-color:var(--poster-gold); }
+  .account-page.is-login .account-panel .error-message { color:#ff9e93; }
+  .account-page.is-login .account-note { border-top-color:var(--poster-line); }
+}
+@keyframes poster-in { from { opacity:0; transform:translateX(8%); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce) { .poster-wedge { animation:none; } }

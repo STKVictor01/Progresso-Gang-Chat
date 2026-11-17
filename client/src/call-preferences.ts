@@ -13,6 +13,7 @@ export type CallPreferences = {
   screenVolumes: Record<string, number>;
   setScreenVolume: (identity: string, volume: number) => void;
   noiseSuppression: boolean;
+  noiseActive: boolean;
   noiseSupported: boolean;
   noiseBusy: boolean;
   noiseStatus: string;

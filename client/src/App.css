@@ -456,8 +456,11 @@ input::placeholder { color: #949387; }
 .tile-profile-avatar { position:absolute; z-index:4; left:50%; top:50%; transform:translate(-50%,-50%); width:76px; height:76px; border:2px solid var(--gold); border-radius:50%; padding:0; overflow:hidden; background:var(--raised); cursor:pointer; }
 .tile-profile-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
 .call-controls .lk-button, .call-controls .chat-toggle, .call-controls .noise-toggle, .call-controls .leave-button { min-width:44px; min-height:44px; display:inline-flex; justify-content:center; align-items:center; padding:10px; }
-.call-controls .noise-control { width:auto; max-width:none; order:initial; }
+.call-controls .noise-control { width:190px; max-width:100%; order:initial; flex-direction:column; align-items:stretch; gap:5px; }
+.call-controls .noise-toggle { gap:8px; }
+.call-controls .noise-control > span { font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
 .call-controls .noise-toggle[aria-pressed=true] { border-color:var(--gold); }
+.call-controls .noise-toggle[data-active=true] { color:var(--gold); }
 .call-controls .deafen-toggle { position:relative; min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:10px; }
 .call-controls .deafen-toggle[aria-pressed=true] { color:#fff; border-color:var(--red-light); background:#56302a; }
 .deafen-slash { position:absolute; width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2.5; }

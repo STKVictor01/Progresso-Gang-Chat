@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyNoiseSuppression, isListenerMuted, listenerId, listenerVolume, readVolumePreferences, toggleListenerMute } from '../src/call-settings.ts';
+import { microphoneOptions, readNoisePreference, isListenerMuted, listenerId, listenerVolume, readVolumePreferences, toggleListenerMute } from '../src/call-settings.ts';
 
 test('volume salvo usa a conta estável em novas sessões e separa transmissões', () => {
   const user='12345678-1234-1234-1234-123456789abc';
@@ -42,21 +42,16 @@ test('silenciar a voz nao silencia a transmissao nem outros participantes', () =
   assert.equal(isListenerMuted(restored, 'amigoA', 'screen'), true);
   assert.equal(isListenerMuted(restored, 'novoAmigo', 'microphone'), false);
 });
-test('o filtro usa a resposta real do microfone e nunca o desmuta', async () => {
-  const requests = [];
-  const track = {
-    applyConstraints: async options => { requests.push(options); },
-    mediaStreamTrack: { getSettings: () => ({ noiseSuppression: false }) },
-    unmute: () => { throw Error('Nunca ativar o microfone ao configurar o filtro'); },
-  };
-  assert.equal(await applyNoiseSuppression(track, true), false);
-  assert.deepEqual(requests[0], { noiseSuppression: true, echoCancellation: true, autoGainControl: true });
-  await applyNoiseSuppression(track, false);
-  assert.equal(requests[1].noiseSuppression, false);
-  track.mediaStreamTrack.getSettings = () => ({});
-  assert.equal(await applyNoiseSuppression(track, true), undefined);
+test('captura mantém proteção de eco e não aplica dois supressores', () => {
+  assert.deepEqual(microphoneOptions(), { noiseSuppression: false, echoCancellation: true, autoGainControl: true });
 });
-test('erro do dispositivo e propagado em vez de informar filtro ativo', async () => {
-  const track = { applyConstraints: async () => { throw Error('Dispositivo indisponivel'); }, mediaStreamTrack: { getSettings: () => ({ noiseSuppression: true }) } };
-  await assert.rejects(() => applyNoiseSuppression(track, true), /Dispositivo indisponivel/);
+
+test('RNNoise preserva a preferência do filtro anterior mesmo sem armazenamento', () => {
+  for (const [saved, expected] of [['false', false], ['true', true], [null, true]]) {
+    globalThis.localStorage = { getItem: key => key === 'pg-noise-suppression' ? saved : null };
+    assert.equal(readNoisePreference(), expected);
+  }
+  globalThis.localStorage = { getItem: () => { throw Error('Armazenamento bloqueado'); } };
+  try { assert.equal(readNoisePreference(), true); }
+  finally { delete globalThis.localStorage; }
 });

@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from './api';
+import { searchGiphy } from './giphy';
+import type { GifResult } from './giphy';
 
-export type GifResult = { id: string; title: string; previewUrl: string; width: number; height: number };
-type Page = { gifs: GifResult[]; nextOffset: number | null };
+export type { GifResult } from './giphy';
 
 async function readError(response: Response, fallback: string) {
   try { const data = await response.json(); return typeof data.error === 'string' && data.error !== 'Not Found' ? data.error : fallback; } catch { return fallback; }
@@ -17,28 +18,31 @@ export function GifPicker({ onPick, onClose, busy }: { onPick: (gif: GifResult) 
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [apiKey, setApiKey] = useState('');
   useEffect(() => { if (dialog.current && !dialog.current.open) dialog.current.showModal(); }, []);
   useEffect(() => {
+    const controller=new AbortController();
+    void (async()=>{try{const response=await api('/api/gifs/config',{signal:controller.signal});if(!response.ok)throw Error(await readError(response,'Biblioteca de GIFs indisponível.'));const data=await response.json();if(typeof data.apiKey!=='string'||!data.apiKey)throw Error('Biblioteca de GIFs indisponível.');setApiKey(data.apiKey);}catch(cause){if(!controller.signal.aborted){setError(cause instanceof Error?cause.message:'Biblioteca de GIFs indisponível.');setLoading(false);}}})();
+    return()=>controller.abort();
+  }, []);
+  useEffect(() => {
+    if (!apiKey) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true); setError('');
       try {
-        const response = await api('/api/gifs?' + new URLSearchParams({ q: query.trim() }), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) });
-        if (!response.ok) throw Error(await readError(response, 'Não foi possível buscar GIFs agora.'));
-        const page = await response.json() as Page;
+        const page = await searchGiphy(apiKey,query,0,AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]));
         setGifs(page.gifs); setNextOffset(page.nextOffset);
       } catch (cause) { if (!controller.signal.aborted) { setGifs([]); setNextOffset(null); setError(cause instanceof Error && cause.name === 'Error' ? cause.message : 'Não foi possível buscar GIFs agora.'); } }
       finally { if (!controller.signal.aborted) setLoading(false); }
-    }, query ? 350 : 0);
+    }, query ? 900 : 0);
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [query]);
+  }, [apiKey,query]);
   async function more() {
     if (nextOffset === null || loading) return;
     setLoading(true); setError('');
     try {
-      const response = await api('/api/gifs?' + new URLSearchParams({ q: query.trim(), offset: String(nextOffset) }));
-      if (!response.ok) throw Error(await readError(response, 'Não foi possível carregar mais GIFs.'));
-      const page = await response.json() as Page;
+      const page = await searchGiphy(apiKey,query,nextOffset,AbortSignal.timeout(12000));
       setGifs(previous => [...new Map([...previous, ...page.gifs].map(gif => [gif.id, gif])).values()]); setNextOffset(page.nextOffset);
     } catch (cause) { setError(cause instanceof Error && cause.name === 'Error' ? cause.message : 'Não foi possível carregar mais GIFs.'); }
     finally { setLoading(false); }
@@ -57,6 +61,6 @@ export function GifPicker({ onPick, onClose, busy }: { onPick: (gif: GifResult) 
       </button>)}
     </div>
     {nextOffset !== null && <button type="button" className="button subtle gif-more" disabled={loading} onClick={() => void more()}>{loading ? 'Carregando…' : 'Carregar mais'}</button>}
-    <footer className="gif-attribution">Powered by GIPHY</footer>
+    <footer className="gif-attribution"><img src="/giphy-attribution.png" alt="Powered by GIPHY" /></footer>
   </dialog>;
 }

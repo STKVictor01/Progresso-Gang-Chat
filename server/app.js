@@ -13,14 +13,12 @@ import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 23;
+export const HEALTH_VERSION = 24;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const validName = name => typeof name === 'string' && name.trim().length >= 2 && name.trim().length <= 32;
-const GIF_ID = /^[A-Za-z0-9]{1,64}$/;
-const GIF_PAGE = 24;
 // Cores muito escuras somem no fundo do chat: exige contraste mínimo de 3:1 com o fundo.
 export function readableNameColor(value) {
   if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) return false;
@@ -41,7 +39,7 @@ function uploadName(value) {
 function dispositionName(name) {
   return encodeURIComponent(name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
 }
-export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, fetchImpl = globalThis.fetch, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
+export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
   if(requireExistingOwner) {
@@ -210,50 +208,11 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       return {status:201,media};
     });
   }
-  // Biblioteca de GIFs (GIPHY). A chave fica só no servidor; o navegador recebe apenas prévias públicas.
-  async function giphy(path,params) {
-    const url=new URL('https://api.giphy.com/v1/gifs'+path);
-    url.searchParams.set('api_key',gifApiKey);
-    for(const [key,value] of Object.entries(params))url.searchParams.set(key,String(value));
-    const response=await fetchImpl(url,{signal:AbortSignal.timeout(8000)});
-    if(!response.ok)throw Error('GIPHY respondeu '+response.status);
-    return response.json();
-  }
-  const giphyMedia=value=>{try{const url=new URL(value);return url.protocol==='https:'&&/(^|\.)giphy\.com$/.test(url.hostname)&&!url.username&&!url.password?url:null;}catch{return null;}};
-  function serializeGif(gif) {
-    const preview=gif?.images?.fixed_width_downsampled||gif?.images?.fixed_width;
-    const url=giphyMedia(preview?.webp||preview?.url);
-    if(typeof gif?.id!=='string'||!GIF_ID.test(gif.id)||!url)return null;
-    return {id:gif.id,title:typeof gif.title==='string'&&gif.title.trim()?gif.title.trim().slice(0,120):'GIF',previewUrl:url.href,width:Number(preview.width)||200,height:Number(preview.height)||200};
-  }
-  app.get('/gifs', {config:{rateLimit:{max:60,timeWindow:'1 minute'}}}, async (request,reply) => {
+  // A chave de integracao web e fornecida somente a contas autenticadas; o navegador fala diretamente com o GIPHY.
+  app.get('/gifs/config', {config:{rateLimit:{max:60,timeWindow:'1 minute'}}}, async (_request,reply) => {
+    reply.header('Cache-Control','no-store');
     if(!gifApiKey)return reply.code(503).send({error:'A biblioteca de GIFs ainda não foi configurada no servidor.'});
-    const {q='',offset='0'}=request.query;
-    if(typeof q!=='string'||q.length>50||typeof offset!=='string'||!/^\d{1,4}$/.test(offset))return reply.code(400).send({error:'Busca inválida.'});
-    const query=q.trim(), start=Number(offset);
-    try{
-      const data=await giphy(query?'/search':'/trending',{...(query?{q:query,lang:'pt'}:{}),limit:GIF_PAGE,offset:start,rating:'pg-13'});
-      const gifs=(Array.isArray(data?.data)?data.data:[]).map(serializeGif).filter(Boolean);
-      const count=Number(data?.pagination?.count)||0, total=Number(data?.pagination?.total_count)||0;
-      return {gifs,nextOffset:count&&start+count<Math.min(total,4999)?start+count:null};
-    }catch{return reply.code(502).send({error:'Não foi possível buscar GIFs agora. Tente novamente.'});}
-  });
-  app.post('/gifs/:gifId', {config:{rateLimit:{max:20,timeWindow:'1 minute'}}}, async (request,reply) => {
-    if(!gifApiKey)return reply.code(503).send({error:'A biblioteca de GIFs ainda não foi configurada no servidor.'});
-    const {gifId}=request.params, {id,channel}=request.body??{};
-    if(!GIF_ID.test(gifId)||typeof id!=='string'||!UUID.test(id)||typeof channel!=='string'||!(await accounts.conversationExists(channel)))return reply.code(400).send({error:'GIF ou canal inválido.'});
-    let buffer;
-    try{
-      const gif=(await giphy('/'+gifId,{}))?.data;
-      const source=giphyMedia(gif?.images?.downsized?.url||gif?.images?.fixed_height?.url);
-      if(!source)return reply.code(404).send({error:'GIF não encontrado.'});
-      const response=await fetchImpl(source,{signal:AbortSignal.timeout(15000),redirect:'error'});
-      if(!response.ok||Number(response.headers.get('content-length')||0)>MAX_UPLOAD_BYTES)throw Error('download');
-      buffer=Buffer.from(await response.arrayBuffer());
-    }catch{return reply.code(502).send({error:'Não foi possível baixar esse GIF. Tente outro.'});}
-    if(buffer.length>MAX_UPLOAD_BYTES)return reply.code(413).send({error:'Esse GIF é grande demais. Tente outro.'});
-    const result=await storeMedia({id,buffer,user:request.user,limit:MAX_UPLOAD_BYTES,general:false,filename:'gif.gif'});
-    return result.error?reply.code(result.status).send({error:result.error}):reply.code(result.status).send(serializeMedia(result.media));
+    return {apiKey:gifApiKey};
   });
   let largeDownloads=0;
   app.get('/media/:id', async (request,reply) => {

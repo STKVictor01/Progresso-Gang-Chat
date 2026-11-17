@@ -643,6 +643,11 @@ input::placeholder { color: var(--muted); }
 .members-panel .sidebar-section-label { display:flex; margin:0 0 8px; padding:0 6px; font-size:10px; }
 .members-panel .members { max-height:none; overflow:visible; }
 .members-panel .member { padding:4px 0; gap:8px; }
+.members-panel .voice-member-card { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
+.voice-member-card.speaking .profile-mini { outline:2px solid var(--online); outline-offset:1px; }
+.voice-member-actions { display:flex; align-items:center; gap:4px; padding:0 4px; }
+.voice-member-actions > span { flex:1; min-width:0; color:var(--text-2); font-size:var(--font-xs); }
+.voice-member-actions .button { min-height:44px; }
 .members-panel .member-avatar { object-fit:cover; }
 .members-panel .voice-member-trigger { padding:4px 6px; }
 .members-panel .member-name { font-size:13px; }
@@ -1615,3 +1620,21 @@ input::placeholder { color: var(--muted); }
 .mention-notice-who { font-size:var(--font-sm); font-weight:600; }
 .mention-notice-where { color:var(--text-2); font-size:var(--font-xs); }
 @media (max-width:767px) { .mention-notice { left:auto; right:12px; width:min(300px,calc(100vw - 24px)); max-height:min(38dvh,300px); top:calc(64px + env(safe-area-inset-top)); } }
+
+.invite-request-trigger { margin-top:12px; min-height:44px; }
+.channel-manage { display:inline-grid; place-items:center; width:36px; min-height:36px; margin-left:auto; color:var(--text); background:transparent; border:0; border-radius:var(--radius-sm); font-size:22px; cursor:pointer; }
+.channel-manage:hover { background:var(--raised); }
+.channel-manage:focus-visible { outline:2px solid var(--rose); }
+@media (pointer:coarse) { .channel-manage { width:44px; min-height:44px; } }
+.invite-inbox ul { list-style:none; padding:0; }
+.invite-inbox li { margin:10px 0; padding:12px; border:1px solid var(--line); border-radius:var(--radius-sm); overflow-wrap:anywhere; }
+.invite-inbox summary { cursor:pointer; min-height:44px; }
+.invite-inbox li p { margin:6px 0; overflow-wrap:anywhere; }
+.invite-inbox li div { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.account-menu-button { position:relative; }
+.account-unread { position:absolute; top:-4px; right:-5px; min-width:18px; padding:2px 4px; border-radius:12px; color:#fff; background:var(--danger); font-size:10px; line-height:1.2; }
+
+.admin-shortcut { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:var(--raised); cursor:pointer; font:600 13px 'Inter Variable','Segoe UI',sans-serif; }
+.admin-shortcut:hover { border-color:var(--line-strong); }
+.admin-shortcut:focus-visible { outline:2px solid var(--rose); outline-offset:2px; }
+@media (max-width:767px) { .admin-shortcut { width:44px; min-width:44px; padding:0; } .admin-shortcut span { display:none; } }

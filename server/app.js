@@ -14,7 +14,7 @@ import { createMediaCache } from './media-cache.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 28;
+export const HEALTH_VERSION = 29;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -444,11 +444,14 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     }
     const timestamp=Date.now();let messageId;
     try { await db.transaction(async()=>{
+      await db.lock('channel-delete:'+channel);
+      if(!(await accounts.conversationExists(channel))){const error=new Error('Canal removido');error.code='CHANNEL_REMOVED';throw error;}
       const result=(await db.prepare('INSERT INTO messages(client_id,name,text,timestamp,channel,user_id,reply_to_id) VALUES(?,?,?,?,?,?,?)').run(clientId,name,text.trim(),timestamp,channel,request.user.id,replyTo));messageId=Number(result.lastInsertRowid);
       (await db.prepare("INSERT INTO message_events(message_id,channel,kind) VALUES(?,?,'created')").run(messageId,channel));
       const attach=db.prepare('INSERT INTO message_attachments(message_id,attachment_id,position) VALUES(?,?,?)');
       for (const [index,id] of attachmentIds.entries()) await attach.run(messageId,id,index);
     }); } catch(error) {
+      if(error.code==='CHANNEL_REMOVED')return reply.code(409).send({error:'Este canal não está mais disponível.'});
       const raced=await findPrevious();
       if(raced)return retry(raced);
       if(error.code==='23505'||[19,1555,2067].includes(error.errcode))return reply.code(409).send({error:'Um dos anexos já foi publicado. Selecione o arquivo novamente.'});

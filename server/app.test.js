@@ -261,6 +261,41 @@ async function createApp(options){
   return app;
 }
 
+test('pedidos de convite persistem e a leitura é individual e restrita a administradores',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'gang-invite-requests-')),dbPath=join(dir,'chat.sqlite');
+  const origin='http://localhost:5173',token=randomBytes(32).toString('base64url');
+  let app;
+  const auth=result=>({cookie:'pg_session='+result.cookies.find(cookie=>cookie.name==='pg_session').value,'x-csrf-token':result.json().csrf,origin});
+  const call=(method,url,payload,headers={})=>app.inject({method,url,payload,headers:{origin,...headers}});
+  try{
+    app=await createRawApp({...options,dbPath,ownerSetupToken:token});
+    const owner=auth(await call('POST','/auth/setup',{token,password:testPassword}));
+    assert.equal((await call('POST','/invite-requests',{name:'X',email:'invalido'})).statusCode,400);
+    assert.equal((await call('POST','/invite-requests',{name:'😀',email:'teste@example.invalid'})).statusCode,400);
+    assert.equal((await call('POST','/invite-requests',{name:'Pessoa teste',email:'pessoa@example.invalid'},{origin:'https://evil.example'})).statusCode,403);
+    assert.equal((await call('POST','/invite-requests',{name:'Pessoa teste',email:'pessoa@example.invalid'})).statusCode,201);
+    assert.equal((await call('GET','/admin/invite-requests')).statusCode,401);
+    const invite=await call('POST','/admin/invites',{},owner);
+    const created=await call('POST','/auth/register',{token:invite.json().token,username:'Outro admin',password:testPassword});
+    const member=auth(created),id=created.json().user.id;
+    assert.equal((await call('GET','/admin/invite-requests',undefined,member)).statusCode,403);
+    assert.equal((await call('PATCH','/admin/users/'+id,{role:'admin',active:true},owner)).statusCode,200);
+    const second=auth(await call('POST','/auth/login',{username:'Outro admin',password:testPassword}));
+    const received=(await call('GET','/admin/invite-requests',undefined,owner)).json();
+    assert.equal(received.unread,1);assert.equal(received.requests[0].email,'pessoa@example.invalid');
+    const requestId=received.requests[0].id;
+    assert.equal((await call('POST','/admin/invite-requests/'+requestId+'/read',{}, {...owner,'x-csrf-token':''})).statusCode,403);
+    assert.equal((await call('POST','/admin/invite-requests/'+requestId+'/read',{},owner)).statusCode,200);
+    assert.equal((await call('GET','/admin/invite-requests',undefined,owner)).json().unread,0);
+    assert.equal((await call('GET','/admin/invite-requests',undefined,second)).json().unread,1);
+    await app.close();app=await createRawApp({...options,dbPath});
+    assert.equal((await call('GET','/admin/invite-requests',undefined,owner)).json().requests[0].read,true);
+    assert.equal((await call('GET','/admin/invite-requests',undefined,second)).json().unread,1);
+    let last;for(let i=0;i<6;i++)last=await app.inject({method:'POST',url:'/invite-requests',remoteAddress:'192.0.2.50',headers:{origin},payload:{name:'Visitante',email:'visitante@example.invalid'}});
+    assert.equal(last.statusCode,429);
+  }finally{if(app)await app.close();rmSync(dir,{recursive:true,force:true});}
+});
+
 test('respostas mantêm o vínculo apenas no canal e ocultam mensagens excluídas',async()=>{
   const app=await createApp({...options,dbPath:':memory:'});
   try{
@@ -630,6 +665,29 @@ test('administrador reordena canais e seções; membros não podem', async () =>
     const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro ordem',password:testPassword}});
     assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf},payload:{order}})).statusCode,403);
   } finally { await app.close(); }
+});
+
+test('exclusão só permite canal de texto vazio e preserva históricos e calls',async()=>{
+  const app=await createApp({...options,dbPath:':memory:'});
+  try{
+    const create=name=>app.inject({method:'POST',url:'/admin/channels',payload:{name,kind:'text'}});
+    const empty=(await create('Canal vazio')).json().id;
+    const history=(await create('Canal com histórico')).json().id;
+    const sent=await app.inject({method:'POST',url:'/messages',payload:{channel:history,clientId:randomUUID(),text:'Preservar'}});
+    assert.equal(sent.statusCode,201);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+history})).statusCode,409);
+    assert.equal((await app.inject({url:'/messages?channel='+history})).json().messages[0].text,'Preservar');
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/general'})).statusCode,409);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/voice/geral'})).statusCode,409);
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',payload:{token:invite.json().token,username:'Membro canal',password:testPassword}});
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+empty,headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf}})).statusCode,403);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/channels/text/'+empty})).statusCode,200);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{channel:empty,clientId:randomUUID(),text:'Tarde demais'}})).statusCode,400);
+    const race=(await create('Canal simultâneo')).json().id;
+    const [remove,send]=await Promise.all([app.inject({method:'DELETE',url:'/admin/channels/text/'+race}),app.inject({method:'POST',url:'/messages',payload:{channel:race,clientId:randomUUID(),text:'Mensagem simultânea'}})]);
+    assert.ok(remove.statusCode===200 ? [400,409].includes(send.statusCode) : remove.statusCode===409 && send.statusCode===201);
+  }finally{await app.close();}
 });
 
 test('banner e cores do perfil são validados, preservados e públicos só para leitura', async () => {

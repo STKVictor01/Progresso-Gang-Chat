@@ -8,6 +8,7 @@ import type { ProfileData } from './profile-card';
 import { AppearanceColors, BannerControls, prepareBanner } from './profile-appearance-editor';
 import { EntrySoundEditor } from './entry-sound';
 import { MenuButton } from './menu';
+import { groupMembers } from './member-groups';
 import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
 import type { BannerCrop, ProfilePalette } from './profile-appearance';
 
@@ -92,6 +93,8 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const [editing,setEditing] = useState(false);
   const [color,setColor] = useState('');
   const [panel,setPanel] = useState<'password'|'admin'|'settings'|null>(null);
+  const [adminTab,setAdminTab] = useState<'site'|'inbox'>('site');
+  const [unreadRequests,setUnreadRequests] = useState(0);
   const [name,setName] = useState('');
   const [description,setDescription] = useState('');
   const [file,setFile] = useState<File|null>(null);
@@ -117,6 +120,13 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const avatarInput = useRef<HTMLInputElement>(null), bannerInput = useRef<HTMLInputElement>(null);
   const own = profiles.find(person => person.id === user.id);
   const me = {name:user.name,avatarUrl:own?.avatarUrl ?? null};
+  useEffect(()=>{
+    if(variant!=='avatar'||user.role!=='admin')return;
+    let active=true;
+    const refreshRequests=()=>{void jsonApi('/api/admin/invite-requests/count').then(data=>{if(active)setUnreadRequests(data.unread);}).catch(()=>{});};
+    refreshRequests();const timer=window.setInterval(refreshRequests,30000);window.addEventListener('pg-invite-requests-changed',refreshRequests);
+    return()=>{active=false;window.clearInterval(timer);window.removeEventListener('pg-invite-requests-changed',refreshRequests);};
+  },[variant,user.role]);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => () => { if (bannerPreview) URL.revokeObjectURL(bannerPreview); }, [bannerPreview]);
   function resetAppearance() { setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setCrop(validCrop(own?.bannerCrop)); setMode(own?.appearanceMode==='custom' ? 'custom' : 'auto'); setCustom(tripleToPalette(own?.customColors)); setNewPalette(null); }
@@ -204,10 +214,10 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const accountPanels = <>
     {panel==='settings' && <SettingsPanel onClose={() => setPanel(null)} onPassword={() => setPanel('password')} onAdmin={() => setPanel('admin')}/>}
     {panel==='password' && <PasswordPanel onClose={() => setPanel(null)}/>}
-    {panel==='admin' && <AdminPanel onClose={() => setPanel(null)}/>}
+    {panel==='admin' && <AdminPanel initialTab={adminTab} onClose={() => setPanel(null)}/>}
   </>;
   const trigger = variant==='avatar'
-    ? <><MenuButton label="Menu da conta" className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:open,disabled:!own},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/></MenuButton>
+    ? <>{user.role==='admin' && <button type="button" className="admin-shortcut" aria-label="Administração da comunidade" title="Administração da comunidade" onClick={() => {setAdminTab('site');setPanel('admin');}}><GearIcon/><span>Administração</span></button>}<MenuButton label={'Menu da conta'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' pedido novo':' pedidos novos'):'')} className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:open,disabled:!own},{label:'Administração da comunidade',onSelect:() => {setAdminTab('site');setPanel('admin');},hidden:user.role!=='admin'},{label:'Correios'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' novo':' novos'):''),onSelect:() => {setAdminTab('inbox');setPanel('admin');},hidden:user.role!=='admin'},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/>{unreadRequests>0&&<span className="account-unread" aria-hidden="true">{unreadRequests>99?'99+':unreadRequests}</span>}</MenuButton>
         {accountError && <div className="account-menu-error" role="alert"><span>{accountError}</span><button type="button" className="icon-button" onClick={() => setAccountError('')} aria-label="Fechar aviso">×</button></div>}</>
     : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label="Meu perfil"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil"><GearIcon/></span></button>;
 
@@ -272,27 +282,22 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
 // Painel de membros: quem está em call, quem está online e quem está offline.
 const OFFLINE_KEY='pg-members-offline-open';
 function readOfflineOpen(){try{return localStorage.getItem(OFFLINE_KEY)!=='0';}catch{return true;}}
-export function MemberGroups({activeVoice,activeCall,activeCount}:{activeVoice:string|null;activeCall:ReactNode;activeCount:number}) {
+export function MemberGroups({activeVoice,activeCall,activeIds}:{activeVoice:string|null;activeCall:ReactNode;activeIds:string[]}) {
   const {people,profiles,showProfile,voiceChannels} = usePresence();
   const {voice} = useAccount();
   const [offlineOpen,setOfflineOpen] = useState(readOfflineOpen);
-  const inCall = new Set(voice.flatMap(channel => voiceChannels?.[channel.id] ?? []));
-  const online = new Set(people.map(person => person.id));
-  const otherCalls = voice.filter(channel => channel.id!==activeVoice).map(channel => ({channel, members:(voiceChannels?.[channel.id] ?? []).map(id => profiles.find(person => person.id===id)).filter((person):person is OnlineUser => !!person)})).filter(group => group.members.length);
-  const available = people.filter(person => !inCall.has(person.id));
-  const offline = profiles.filter(person => person.active!==false && !online.has(person.id) && !inCall.has(person.id)).sort((a,b) => a.name.localeCompare(b.name,'pt-BR'));
-  const callTotal = (activeVoice ? activeCount : 0) + otherCalls.reduce((sum,group) => sum+group.members.length,0);
+  const {otherCalls,available,offline,callTotal}=groupMembers({people,profiles,voice,voiceChannels,activeVoice,activeIds});
   function toggleOffline(open:boolean) { setOfflineOpen(open); try { localStorage.setItem(OFFLINE_KEY,open?'1':'0'); } catch { /* Preferência opcional. */ } }
   return <>
     <section className="member-group call-members" aria-labelledby="members-call-title">
       <h2 className="sidebar-section-label member-group-title" id="members-call-title">NA CALL <span>{callTotal}</span></h2>
       {activeCall}
-      {otherCalls.map(group => <div className="member-call" key={group.channel.id}><h3 className="member-call-title"><span>{group.channel.name}</span><span>{group.members.length}</span></h3><ul className="member-list">{group.members.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[]} onOpen={()=>showProfile(person.id)}/></li>)}</ul></div>)}
+      {otherCalls.map(group => <div className="member-call" key={group.channel.id}><h3 className="member-call-title"><span>{group.channel.name}</span><span>{group.members.length}</span></h3><ul className="member-list">{group.members.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[group.channel.name]} onOpen={()=>showProfile(person.id)}/></li>)}</ul></div>)}
       {!callTotal && <p className="sidebar-empty">Ninguém em call agora.</p>}
     </section>
     <section className="member-group online-members" aria-labelledby="online-members-title">
       <h2 className="sidebar-section-label member-group-title" id="online-members-title">ONLINE <span>{available.length}</span></h2>
-      {available.length ? <ul className="member-list">{available.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[]} onOpen={()=>showProfile(person.id)}/></li>)}</ul> : <p className="sidebar-empty">{people.length ? 'Todo mundo online está em call.' : 'Ninguém online agora.'}</p>}
+      {available.length ? <ul className="member-list">{available.map(person => <li key={person.id}><ProfileMiniCard profile={person} calls={[]} onOpen={()=>showProfile(person.id)}/></li>)}</ul> : <p className="sidebar-empty">Ninguém online agora.</p>}
     </section>
     <details className="member-group offline-members" open={offlineOpen} onToggle={event => toggleOffline(event.currentTarget.open)}>
       <summary className="sidebar-section-label member-group-title"><span>OFFLINE</span><span>{offline.length}</span></summary>

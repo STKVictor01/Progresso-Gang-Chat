@@ -11,7 +11,7 @@ import { useCallPreferences } from './call-preferences';
 import { microphoneOptions } from './call-settings';
 import { MediaFocusStage } from './media-focus';
 import { ChannelChat } from './channel-chat';
-import { AccountGate, useAccount } from './accounts';
+import { AccountGate, AdminPanel, useAccount } from './accounts';
 import { api } from './api';
 import { Soundboard } from './soundboard';
 import { CoverArt, MusicControl, MusicNote } from './music';
@@ -20,6 +20,7 @@ import { AudioOutputControl } from './audio-output';
 import { playJoinSound, playLeaveSound } from './call-sounds';
 import { ActivityProvider, MentionNotifications, useActivity } from './mention-notifications';
 import { MemberGroups, ProfileEditor, PresenceProvider, usePresence } from './presence';
+import { ProfileMiniCard } from './profile-card';
 
 type Session = { token: string; serverUrl: string };
 type IconName = 'voice' | 'voiceQuiet' | 'arrow' | 'link' | 'shield' | 'chat' | 'close' | 'chevron' | 'headphones' | 'menu' | 'users' | 'speaker' | 'leave';
@@ -63,6 +64,10 @@ function Member({ participant }: { participant: Participant }) {
   const label = participant.name || 'Participante';
   const nameColor = profile?.nameColor ? {color:profile.nameColor} : undefined;
   const {handlers,menu,openSettings} = useParticipantAudioMenu(participant);
+  if(profile && !isBot) return <li className={'member voice-member-card'+(speaking?' speaking':'')} {...handlers}>
+    <ProfileMiniCard profile={profile} calls={[nav.activeVoice ? 'Call ativa' : 'Call']} onOpen={()=>showProfile(profile.id)}/>
+    <div className="voice-member-actions"><span>{speaking?'Falando agora':participant.isLocal?'Você':'Na call'}</span>{!participant.isLocal&&<><button className="button subtle" onClick={event=>openSettings(event.currentTarget,true)} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog">Áudio</button>{menu}</>}<QuickParticipantMute participant={participant}/></div>
+  </li>;
   return <li className={`member ${speaking ? 'speaking' : ''}`} {...handlers}>
     <button className="voice-profile-button" disabled={!profile} onClick={()=>profile && showProfile(profile.id)} aria-label={'Ver perfil de '+label}>{isBot ? <CoverArt cover={nav.activeVoice ? music[nav.activeVoice]?.cover : undefined} className="member-avatar music-member-cover"/> : profile?.avatarUrl ? <img className="member-avatar" src={profile.avatarUrl} alt=""/> : <span className="member-avatar">{label.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}</button>
     {participant.isLocal ? <span className="member-name" style={nameColor}>{label}<small>Você</small></span> : <><button className="voice-member-trigger" onClick={event=>openSettings(event.currentTarget,true)} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog"><span className="member-name" style={nameColor}>{label}<small>{speaking ? 'Falando agora' : 'Ajustar áudio'}</small></span></button>{menu}</>}
@@ -123,20 +128,20 @@ function VoiceWelcome({channel}: {channel: {id: string; name: string}}) {
 function ChannelBadge({mentioned,fresh}:{mentioned:number;fresh:boolean}) {
   return mentioned ? <span className="channel-badge mention-badge" aria-hidden="true">@</span> : fresh ? <span className="channel-badge unread-dot" aria-hidden="true" /> : null;
 }
-function Sidebar({open, close}: {open: boolean; close: () => void}) {
-  const {voice:CHANNELS,text,site}=useAccount();
+function Sidebar({open, close, manage}: {open: boolean; close: () => void; manage:(kind:'text'|'voice')=>void}) {
+  const {voice:CHANNELS,text,site,user}=useAccount();
   const nav = useNavigation();
   const activity = useActivity();
-  return <aside id="community-sidebar" className={"sidebar community-sidebar " + (open ? "mobile-open" : "")} aria-label="Canais da comunidade"><div className="mobile-sidebar-header"><Brand /><button className="mobile-menu-close" onClick={close} aria-label="Fechar canais"><Icon name="close" /></button></div><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais" onClick={event => { if ((event.target as HTMLElement).closest("button")) close(); }}>{sectionOrder(text,CHANNELS).map(kind => kind==='text' ? <div className="channel-section" key="text"><div className="sidebar-section-label">CONVERSA <span>{text.length}</span></div>{text.map(channel=>{const current=nav.view === 'text' && nav.selectedText === channel.id;const fresh=!current && activity.unread(channel.id);const mentioned=current ? 0 : activity.mentions(channel.id);return <button key={channel.id} className={'channel text-channel ' + (current ? 'active' : '') + (fresh || mentioned ? ' has-unread' : '')} aria-current={current ? 'page' : undefined} aria-label={'#'+channel.name+(mentioned ? ', mencionaram você' : fresh ? ', mensagens novas' : '')} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span className="channel-name">#{channel.name}</span><ChannelBadge mentioned={mentioned} fresh={fresh}/></button>;})}</div> : <div className="channel-section" key="voice"><div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span></div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</div>)}</nav><div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Na call' : 'Online'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
+  return <aside id="community-sidebar" className={"sidebar community-sidebar " + (open ? "mobile-open" : "")} aria-label="Canais da comunidade"><div className="mobile-sidebar-header"><Brand /><button className="mobile-menu-close" onClick={close} aria-label="Fechar canais"><Icon name="close" /></button></div><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais" onClick={event => { if ((event.target as HTMLElement).closest("button")) close(); }}>{sectionOrder(text,CHANNELS).map(kind => kind==='text' ? <div className="channel-section" key="text"><div className="sidebar-section-label">CONVERSA <span>{text.length}</span>{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de texto" title="Criar ou gerenciar canais de texto" onClick={()=>manage('text')}>+</button>}</div>{text.map(channel=>{const current=nav.view === 'text' && nav.selectedText === channel.id;const fresh=!current && activity.unread(channel.id);const mentioned=current ? 0 : activity.mentions(channel.id);return <button key={channel.id} className={'channel text-channel ' + (current ? 'active' : '') + (fresh || mentioned ? ' has-unread' : '')} aria-current={current ? 'page' : undefined} aria-label={'#'+channel.name+(mentioned ? ', mencionaram você' : fresh ? ', mensagens novas' : '')} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span className="channel-name">#{channel.name}</span><ChannelBadge mentioned={mentioned} fresh={fresh}/></button>;})}</div> : <div className="channel-section" key="voice"><div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span>{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de voz" title="Criar ou gerenciar canais de voz" onClick={()=>manage('voice')}>+</button>}</div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</div>)}</nav><div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Na call' : 'Online'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
 }
 // Painel direito: quem está na call e quem está online.
 function MembersPanel({open, close}: {open: boolean; close: () => void}) {
   const {voice:CHANNELS}=useAccount();
   const nav = useNavigation();
-  const participants = useParticipants().filter(participant=>!participant.identity.startsWith('music-bot:'));
+  const participants = [...new Map(useParticipants().filter(participant=>!participant.identity.startsWith('music-bot:')).map(participant=>[participant.identity.split(':')[0],participant])).values()];
   // A call em que você está usa a lista do LiveKit, com fala e ajustes de áudio.
   const activeCall = nav.activeVoice ? <div className="member-call"><h3 className="member-call-title"><span>{CHANNELS.find(c => c.id === nav.activeVoice)?.name}</span><span>{participants.length}</span></h3><ul className="members">{participants.map(p => <Member key={p.identity} participant={p} />)}</ul></div> : null;
-  return <aside id="members-panel" className={"members-panel " + (open ? "mobile-open" : "")} aria-label="Membros"><div className="members-panel-header"><strong>Membros</strong><button className="members-panel-close" onClick={close} aria-label="Fechar membros"><Icon name="close" /></button></div><MemberGroups activeVoice={nav.activeVoice} activeCall={activeCall} activeCount={participants.length} /></aside>;
+  return <aside id="members-panel" className={"members-panel " + (open ? "mobile-open" : "")} aria-label="Membros"><div className="members-panel-header"><strong>Membros</strong><button className="members-panel-close" onClick={close} aria-label="Fechar membros"><Icon name="close" /></button></div><MemberGroups activeVoice={nav.activeVoice} activeCall={activeCall} activeIds={nav.activeVoice ? participants.map(participant=>participant.identity.split(':')[0]) : []} /></aside>;
 }
 function VoiceChannel({channel}:{channel:{id:string;name:string;hint:string}}) {
   const nav = useNavigation();
@@ -192,6 +197,7 @@ function Community() {
   const state = useConnectionState();
   const [menuOpen, setMenuOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [channelAdmin,setChannelAdmin]=useState<'text'|'voice'|null>(null);
   const drawerOpen = menuOpen || membersOpen;
   useEffect(() => {
     if (!drawerOpen) return;
@@ -218,11 +224,11 @@ function Community() {
   const closeMenu = () => { if (menuOpen) setMenuOpen(false); };
   const closeMembers = () => { if (membersOpen) setMembersOpen(false); };
   const channel = CHANNELS.find(c=>c.id===nav.selectedVoice)!;
-  return <div className="app-shell room-shell community-shell"><MentionNotifications onOpen={channel=>{if(channel.startsWith("voice:")){const id=channel.slice(6);nav.selectVoice(id);if(nav.activeVoice===id)nav.setCallChatOpen(true);}else nav.selectText(channel);}} /><PageHeader openMenu={() => { setMembersOpen(false); setMenuOpen(true); }} menuOpen={menuOpen} openMembers={() => { setMenuOpen(false); setMembersOpen(true); }} membersOpen={membersOpen} /><Sidebar open={menuOpen} close={closeMenu} />{drawerOpen && <button className={'mobile-menu-backdrop' + (membersOpen ? ' for-members' : '')} aria-label={menuOpen ? 'Fechar canais' : 'Fechar membros'} onClick={menuOpen ? closeMenu : closeMembers} />}<main className="main-panel" id="principal">{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><CallSounds /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><span className="sr-only" role="status">{nav.joining ? 'Entrando na call…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : ''}</span>{nav.activeVoice===channel.id ? <div className={"voice-content-row " + (nav.callChatOpen ? "call-chat-open" : "")}><MediaFocusStage channel={nav.activeVoice} /><aside className="call-chat-side" hidden={!nav.callChatOpen}><ChannelChat key={nav.activeVoice} name={nav.name} channel={"voice:"+nav.activeVoice} title={channel.name} compact visible={nav.callChatOpen && nav.view === "voice"} onClose={() => nav.setCallChatOpen(false)} /></aside></div> : <VoiceWelcome channel={channel} />}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><span className={'voice-dock-status' + (state===ConnectionState.Connected ? ' connected' : '')}><Icon name="voice" size={16} /><span><strong>{state===ConnectionState.Connected ? 'Conectado à call' : 'Reconectando…'}</strong><small>{CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</small></span></span><LeaveCallButton /></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><PersonalAudioRenderer /></main><MembersPanel open={membersOpen} close={closeMembers} /></div>;
+  return <div className="app-shell room-shell community-shell"><MentionNotifications onOpen={channel=>{if(channel.startsWith("voice:")){const id=channel.slice(6);nav.selectVoice(id);if(nav.activeVoice===id)nav.setCallChatOpen(true);}else nav.selectText(channel);}} /><PageHeader openMenu={() => { setMembersOpen(false); setMenuOpen(true); }} menuOpen={menuOpen} openMembers={() => { setMenuOpen(false); setMembersOpen(true); }} membersOpen={membersOpen} /><Sidebar open={menuOpen} close={closeMenu} manage={kind=>{closeMenu();setChannelAdmin(kind);}} />{drawerOpen && <button className={'mobile-menu-backdrop' + (membersOpen ? ' for-members' : '')} aria-label={menuOpen ? 'Fechar canais' : 'Fechar membros'} onClick={menuOpen ? closeMenu : closeMembers} />}<main className="main-panel" id="principal">{nav.error && <div className="room-error" role="alert">{nav.error}<button className="icon-button" onClick={()=>nav.setError('')} aria-label="Fechar aviso"><Icon name="close" /></button></div>}<PublicChat /><CallSounds /><section className="voice-view" hidden={nav.view !== 'voice'} aria-label={'Canal de voz '+channel.name}><span className="sr-only" role="status">{nav.joining ? 'Entrando na call…' : state===ConnectionState.Reconnecting || state===ConnectionState.SignalReconnecting ? 'Reconectando…' : ''}</span>{nav.activeVoice===channel.id ? <div className={"voice-content-row " + (nav.callChatOpen ? "call-chat-open" : "")}><MediaFocusStage channel={nav.activeVoice} /><aside className="call-chat-side" hidden={!nav.callChatOpen}><ChannelChat key={nav.activeVoice} name={nav.name} channel={"voice:"+nav.activeVoice} title={channel.name} compact visible={nav.callChatOpen && nav.view === "voice"} onClose={() => nav.setCallChatOpen(false)} /></aside></div> : <VoiceWelcome channel={channel} />}</section>{nav.activeVoice && <div className="voice-dock"><div className="voice-dock-label"><span className={'voice-dock-status' + (state===ConnectionState.Connected ? ' connected' : '')}><Icon name="voice" size={16} /><span><strong>{state===ConnectionState.Connected ? 'Conectado à call' : 'Reconectando…'}</strong><small>{CHANNELS.find(c=>c.id===nav.activeVoice)?.name}</small></span></span><LeaveCallButton /></div><VoiceControls /></div>}<StartAudio label="Ativar áudio da sala" /><PersonalAudioRenderer /></main><MembersPanel open={membersOpen} close={closeMembers} />{channelAdmin&&<AdminPanel initialTab="channels" initialKind={channelAdmin} onClose={()=>setChannelAdmin(null)}/>}</div>;
 }
 export default function App() { return <AccountGate><AuthenticatedApp /></AccountGate>; }
 function AuthenticatedApp() {
-  const {user}=useAccount();
+  const {user,text,voice}=useAccount();
   const name=user.name;
   const [selectedText,setSelectedText]=useState('general');
   const [room] = useState(() => new Room({ adaptiveStream: true, dynacast: true, audioCaptureDefaults: microphoneOptions() }));
@@ -255,7 +261,9 @@ function AuthenticatedApp() {
     } catch { setError('Não foi possível entrar na call. Confira sua internet e tente novamente.'); }
     finally { switching.current=false; setJoining(false); }
   }
-  function selectVoice(id:VoiceId) { setSelectedVoice(id); setView('voice'); if(activeVoice && activeVoice!==id) void joinVoice(id); }
-  const navigation:Navigation={selectedText,selectText:id=>{setSelectedText(id);setView('text');},name,view,setView,selectedVoice,selectVoice,activeVoice,joinVoice:id=>void joinVoice(id),joining,audio,setAudio,error,setError,callChatOpen,setCallChatOpen};
+  function selectVoice(id:VoiceId) { setSelectedVoice(id); setView('voice'); }
+  const currentText=text.some(channel=>channel.id===selectedText)?selectedText:text[0]?.id || 'general';
+  const currentVoice=voice.some(channel=>channel.id===selectedVoice)?selectedVoice:voice[0]?.id || 'geral';
+  const navigation:Navigation={selectedText:currentText,selectText:id=>{setSelectedText(id);setView('text');},name,view,setView,selectedVoice:currentVoice,selectVoice,activeVoice,joinVoice:id=>void joinVoice(id),joining,audio,setAudio,error,setError,callChatOpen,setCallChatOpen};
   return <div data-lk-theme="default" className="progresso-app"><RoomContext.Provider value={room}><div className="live-room lk-room-container"><CallPreferencesProvider><NavigationContext.Provider value={navigation}><PresenceProvider><ActivityProvider><Community /></ActivityProvider></PresenceProvider></NavigationContext.Provider></CallPreferencesProvider></div></RoomContext.Provider></div>;
 }

@@ -29,6 +29,11 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
   INSERT OR IGNORE INTO channels VALUES('general','text','geral','O papo continua por aqui',0),('geral','voice','Geral','Conversa e resenha',0),('jogatina','voice','Jogatina','Fecha o squad',1);
   CREATE TABLE IF NOT EXISTS site_settings (id INTEGER PRIMARY KEY CHECK(id=1), name TEXT NOT NULL, tagline TEXT NOT NULL);
   INSERT OR IGNORE INTO site_settings VALUES(1,'Progresso Gang - Chat','O nosso ponto de encontro');`));
+  if (db.kind==='sqlite') await db.exec(`CREATE TABLE IF NOT EXISTS invite_requests (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS invite_requests_created_idx ON invite_requests(created_at DESC,id);
+    CREATE TABLE IF NOT EXISTS invite_request_reads (request_id TEXT NOT NULL REFERENCES invite_requests(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, read_at INTEGER NOT NULL, PRIMARY KEY(request_id,user_id));
+    CREATE INDEX IF NOT EXISTS invite_request_reads_user_idx ON invite_request_reads(user_id,request_id);`);
+  const requestsReady=db.kind==='sqlite' || (await Promise.all(['invite_requests','invite_request_reads'].map(name=>db.prepare("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=?").get(name)))).every(Boolean);
   if (!(await db.prepare('SELECT id FROM users WHERE is_owner=1').get())) (await db.prepare('INSERT INTO users VALUES(?,?,?,?,?,1,1,?)').run(randomUUID(),'Vitão',key('Vitão'),null,'admin',Date.now()));
   if(authProvider){
     if(db.kind==='sqlite'){
@@ -114,13 +119,41 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
         if(link && verified?.id===link.auth_user_id && verified.email_confirmed_at && verified.email?.toLowerCase()===link.email.toLowerCase()){request.user=row;request.csrf=row.csrf;request.authUser=verified;}
       } else if (row) { request.user = row; request.csrf = row.csrf; }
     }
-    const publicPaths = ['/health','/ready','/site','/auth/me','/auth/login','/auth/setup','/auth/register','/auth/link','/auth/recovery-request','/auth/recovery-finish'];
+    const publicPaths = ['/health','/ready','/site','/auth/me','/auth/login','/auth/setup','/auth/register','/auth/link','/auth/recovery-request','/auth/recovery-finish','/invite-requests'];
     if (publicPaths.includes(path) || request.method === 'OPTIONS') return;
     if (!request.user) return fail(reply,401,'Entre na sua conta para continuar.');
     if (!['GET','HEAD'].includes(request.method) && request.headers['x-csrf-token'] !== request.csrf) return fail(reply,403,'Atualize a página antes de continuar.');
     if (path.startsWith('/admin/') && request.user.role !== 'admin') return fail(reply,403,'Somente administradores podem fazer isso.');
   });
   app.get('/site', async () => (await db.prepare('SELECT name,tagline FROM site_settings WHERE id=1').get()));
+  app.post('/invite-requests', {bodyLimit:2048,config:{rateLimit:{max:5,timeWindow:'1 hour'}}}, async (request,reply)=>{
+    if(!requestsReady)return fail(reply,503,'Pedidos de convite temporariamente indisponíveis.');
+    const {name,email}=request.body??{};
+    if(typeof name!=='string'||Array.from(name.trim()).length<2||Array.from(name.trim()).length>80||/[\x00-\x1f\x7f]/.test(name)||typeof email!=='string'||!validEmail(email.trim()))return fail(reply,400,'Confira o nome e o e-mail informados.');
+    const count=await db.prepare('SELECT COUNT(*) AS total FROM invite_requests').get();
+    if(count.total>=5000)return fail(reply,503,'Pedidos de convite temporariamente indisponíveis.');
+    await db.prepare('INSERT INTO invite_requests(id,name,email,created_at) VALUES(?,?,?,?)').run(randomUUID(),name.trim(),email.trim(),Date.now());
+    return reply.code(201).send({ok:true});
+  });
+  app.get('/admin/invite-requests',async(request,reply)=>{
+    if(!requestsReady)return fail(reply,503,'Pedidos de convite ainda não estão disponíveis.');
+    const offset=Number(request.query?.offset??0);
+    if(!Number.isSafeInteger(offset)||offset<0||offset>5000)return fail(reply,400,'Página de pedidos inválida.');
+    const rows=await db.prepare('SELECT r.id,r.name,r.email,r.created_at,CASE WHEN v.user_id IS NULL THEN 0 ELSE 1 END AS is_read FROM invite_requests r LEFT JOIN invite_request_reads v ON v.request_id=r.id AND v.user_id=? ORDER BY r.created_at DESC,r.id DESC LIMIT 100 OFFSET ?').all(request.user.id,offset);
+    const unread=await db.prepare('SELECT COUNT(*) AS total FROM invite_requests r WHERE NOT EXISTS (SELECT 1 FROM invite_request_reads v WHERE v.request_id=r.id AND v.user_id=?)').get(request.user.id);
+    return {requests:rows.map(row=>({id:row.id,name:row.name,email:row.email,createdAt:row.created_at,read:Boolean(row.is_read)})),unread:unread.total,hasMore:rows.length===100};
+  });
+  app.get('/admin/invite-requests/count',async(request,reply)=>{
+    if(!requestsReady)return fail(reply,503,'Pedidos de convite ainda não estão disponíveis.');
+    const result=await db.prepare('SELECT COUNT(*) AS total FROM invite_requests r WHERE NOT EXISTS (SELECT 1 FROM invite_request_reads v WHERE v.request_id=r.id AND v.user_id=?)').get(request.user.id);
+    return {unread:result.total};
+  });
+  app.post('/admin/invite-requests/:id/read',async(request,reply)=>{
+    if(!requestsReady)return fail(reply,503,'Pedidos de convite ainda não estão disponíveis.');
+    if(!(await db.prepare('SELECT id FROM invite_requests WHERE id=?').get(request.params.id)))return fail(reply,404,'Pedido não encontrado.');
+    await db.prepare('INSERT INTO invite_request_reads(request_id,user_id,read_at) VALUES(?,?,?) ON CONFLICT(request_id,user_id) DO NOTHING').run(request.params.id,request.user.id,Date.now());
+    return {ok:true};
+  });
   app.get('/auth/me', async request => ({ user: request.user ? publicUser(request.user) : null, csrf: request.csrf ?? null, setupPending: !(await db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get()).password_hash, authMode:authProvider?'supabase':'local' }));
   app.post('/auth/login', limited, async (request,reply) => {
     if(authProvider){
@@ -307,6 +340,23 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     if (!validName(name) || typeof hint!=='string' || hint.length>120) return fail(reply,400,'Nome ou descrição inválidos.');
     const result=(await db.prepare('UPDATE channels SET name=?,hint=? WHERE id=? AND kind=?').run(name.trim(),hint.trim(),request.params.id,request.params.kind));
     if(result.changes)recordEvent('channel-update',{actor:request.user.username,channel:name.trim()});return result.changes?{ok:true}:fail(reply,404,'Canal não encontrado.');
+  });
+  app.delete('/admin/channels/:kind/:id', async (request,reply) => {
+    const {kind,id}=request.params;
+    if(!['text','voice'].includes(kind))return fail(reply,404,'Canal não encontrado.');
+    if(kind==='voice')return fail(reply,409,'A exclusão de canais de voz está indisponível enquanto não for possível impedir novas conexões com acessos já emitidos.');
+    if(id==='general')return fail(reply,409,'O canal geral é obrigatório e não pode ser excluído.');
+    const result=await db.transaction(async()=>{
+      await db.lock('channel-delete:'+id);
+      const channel=await db.prepare('SELECT id FROM channels WHERE id=? AND kind=?').get(id,kind);
+      if(!channel)return 404;
+      if((await db.prepare("SELECT COUNT(*) AS total FROM channels WHERE kind='text'").get()).total<=1)return 409;
+      if(await db.prepare('SELECT id FROM messages WHERE channel=? LIMIT 1').get(id))return 409;
+      await db.prepare('DELETE FROM channels WHERE id=? AND kind=?').run(id,kind);return 200;
+    });
+    if(result===404)return fail(reply,404,'Canal não encontrado.');
+    if(result===409)return fail(reply,409,'Só é possível excluir canais de texto vazios, mantendo pelo menos um canal. Mensagens e anexos não são apagados.');
+    recordEvent('channel-update',{actor:request.user.username,channel:'canal de texto removido'});return {ok:true};
   });
   // Ordem dos canais na barra lateral. A seção cujo primeiro canal vem antes aparece primeiro.
   app.post('/admin/channels/order', async (request,reply) => {

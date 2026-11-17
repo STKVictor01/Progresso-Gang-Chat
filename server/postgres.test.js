@@ -13,7 +13,7 @@ const setupToken=randomBytes(32).toString('base64url');
 const options={databaseUrl:process.env.PG_TEST_DATABASE_URL,certificatePath:process.env.PG_TEST_CA_CERT,schema,apiKey:'test',apiSecret:randomBytes(32).toString('hex'),serverUrl:'ws://localhost:7880',ownerSetupToken:setupToken,secureCookies:false,logger:false,allowedOrigins:[origin],roomService:{listRooms:async()=>[]}};
 const headers=response=>({origin,cookie:response.cookies[0].name+'='+response.cookies[0].value,'x-csrf-token':response.json().csrf});
 test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabled},async()=>{
-  const app=await createApp(options);
+  let app=await createApp(options);
   const call=(credentials,method,url,payload,extra={})=>app.inject({method,url,headers:{...credentials,...extra},payload});
   try {
     const setup=await call({origin},'POST','/auth/setup',{token:setupToken,password});
@@ -75,6 +75,26 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     assert.equal(duplicate[0].json().id,duplicate[1].json().id);
     const simultaneous=await Promise.all([call(user,'DELETE','/messages/'+duplicate[0].json().id),call(user,'DELETE','/messages/'+duplicate[0].json().id)]);
     assert.deepEqual(simultaneous.map(response=>response.statusCode).sort(),[200,404]);
+    const requested=await call({origin},'POST','/invite-requests',{name:'Visitante de teste',email:'visitante@example.invalid'});
+    assert.equal(requested.statusCode,201);
+    assert.equal((await call(user,'GET','/admin/invite-requests')).statusCode,403);
+    const mailbox=await call(admin,'GET','/admin/invite-requests');
+    assert.equal(mailbox.statusCode,200);assert.equal(mailbox.json().unread,1);
+    const requestId=mailbox.json().requests[0].id;
+    assert.equal((await call(admin,'POST','/admin/invite-requests/'+requestId+'/read',{})).statusCode,200);
+    assert.equal((await call(admin,'GET','/admin/invite-requests/count')).json().unread,0);
+    const created=await call(admin,'POST','/admin/channels',{name:'Texto temporário',kind:'text'});
+    assert.equal(created.statusCode,201);
+    const channelId=created.json().id;
+    const [removed,sent]=await Promise.all([call(admin,'DELETE','/admin/channels/text/'+channelId),call(user,'POST','/messages',{clientId:randomUUID(),channel:channelId,text:'Teste concorrente'})]);
+    assert.ok(removed.statusCode===200?[400,409].includes(sent.statusCode):removed.statusCode===409&&sent.statusCode===201);
+    assert.equal((await call(admin,'PATCH','/admin/users/'+member.json().user.id,{role:'admin',active:true})).statusCode,200);
+    const secondLogin=await call({origin},'POST','/auth/login',{username:'Pessoa final',password});
+    assert.equal(secondLogin.statusCode,200);const secondAdmin=headers(secondLogin);
+    assert.equal((await call(secondAdmin,'GET','/admin/invite-requests/count')).json().unread,1);
+    await app.close();app=await createApp(options);
+    assert.equal((await call(admin,'GET','/admin/invite-requests/count')).json().unread,0);
+    assert.equal((await call(secondAdmin,'GET','/admin/invite-requests/count')).json().unread,1);
   } finally {await app.close();}
 });
 test('esquema mantém contas e mensagens inacessíveis às funções públicas',{skip:!enabled},async()=>{

@@ -60,6 +60,15 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
   const limited = { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } };
   const loginAccountLimit=app.createRateLimit({max:20,timeWindow:'15 minutes',keyGenerator:request=>'account:'+digest(validName(request.body?.username)?key(request.body.username):validEmail(request.body?.email)?request.body.email.trim().toLowerCase():'invalid')});
   const cookieOptions={httpOnly:true,secure:secureCookies,sameSite:'strict',path:'/'};
+  // Só compartilha consultas simultâneas; a próxima requisição volta a verificar revogações.
+  const verifying=new Map();
+  async function verifyOnce(token){
+    const id=digest(token),existing=verifying.get(id);
+    if(existing)return existing;
+    if(verifying.size>=256)return authProvider.verify(token);
+    const pending=authProvider.verify(token);verifying.set(id,pending);
+    try{return await pending;}finally{if(verifying.get(id)===pending)verifying.delete(id);}
+  }
   const refreshing=new Map();
   async function refreshOnce(token){
     const id=digest(token), existing=refreshing.get(id);
@@ -96,7 +105,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
         const access=request.cookies.pg_access;
         let verified;
         if(access && access.length<8192)try {
-          verified=await authProvider.verify(access);
+          verified=await verifyOnce(access);
         } catch(error) {if(![400,401,403].includes(error.status))return fail(reply,503,'Autenticação temporariamente indisponível.');}
         if(!verified && request.cookies.pg_refresh && request.cookies.pg_refresh.length<8192)try{
           const signed=await refreshOnce(request.cookies.pg_refresh);

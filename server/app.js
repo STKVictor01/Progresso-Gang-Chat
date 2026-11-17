@@ -10,6 +10,7 @@ import { installAccounts } from './accounts.js';
 import { normalizeSoundboardWav, validSoundboardWav } from './soundboard-audio.js';
 import { createActivityLog } from './activity-log.js';
 import { installMusic } from './music.js';
+import { createMediaCache } from './media-cache.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
@@ -260,20 +261,42 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     return {apiKey:gifApiKey};
   });
   let largeDownloads=0;
+  const mediaCache=createMediaCache();
+  const mediaReads=new Map();
   app.get('/media/:id', async (request,reply) => {
     const {id}=request.params;
     if(!UUID.test(id)) return reply.code(404).send({error:'Imagem não encontrada.'});
-    const size=(await db.prepare('SELECT size FROM attachments WHERE id=?').get(id))?.size;
-    if(size>MAX_UPLOAD_BYTES){
+    const filter='a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id'+(appearance?' OR p.banner_id=a.id':'')+'))';
+    const media=await db.prepare('SELECT a.mime,a.animated,a.filename,a.size,a.request_hash FROM attachments a WHERE '+filter).get(id);
+    if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
+    if(media.size>MAX_UPLOAD_BYTES){
       if(largeDownloads>=2)return reply.code(429).send({error:'Muitos downloads em andamento. Tente novamente em instantes.'});
       largeDownloads++;reply.raw.once('close',()=>{largeDownloads--;});
     }
-    const media=(await db.prepare('SELECT a.mime,a.data,a.animated,a.filename FROM attachments a WHERE a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id'+(appearance?' OR p.banner_id=a.id':'')+'))').get(id));
-    if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
-    let body=Buffer.from(media.data);
-    let mime=media.mime;
-    if(request.query.thumb==='1' && mime.startsWith('image/')){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).resize({width:340,height:120,fit:'inside',withoutEnlargement:true}).webp({quality:75}).toBuffer();mime='image/webp';}
-    else if(request.query.still==='1'&&media.animated){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).png().toBuffer();mime='image/png';}
+    const cacheable=media.mime.startsWith('image/') && media.size<=MAX_UPLOAD_BYTES;
+    const cacheKey=id+':'+media.request_hash;
+    const variant=request.query.thumb==='1' && media.mime.startsWith('image/') ? 'thumb' : request.query.still==='1' && media.animated ? 'still' : 'original';
+    const variantKey=cacheKey+':'+variant;
+    const mime=variant==='thumb'?'image/webp':variant==='still'?'image/png':media.mime;
+    let body=cacheable ? mediaCache.get(variantKey) : undefined;
+    if(!body){
+      body=cacheable ? mediaCache.get(cacheKey+':original') : undefined;
+      if(!body){
+        let pending=cacheable ? mediaReads.get(cacheKey) : undefined;
+        if(!pending){
+          pending=db.prepare('SELECT a.data FROM attachments a WHERE '+filter).get(id);
+          if(cacheable && mediaReads.size<256)mediaReads.set(cacheKey,pending);
+        }
+        let result;
+        try{result=await pending;}finally{if(mediaReads.get(cacheKey)===pending)mediaReads.delete(cacheKey);}
+        if(!result)return reply.code(404).send({error:'Imagem não encontrada.'});
+        body=Buffer.from(result.data);
+        if(cacheable)mediaCache.set(cacheKey+':original',body);
+      }
+      if(variant==='thumb')body=await sharp(body,{limitInputPixels:MAX_PIXELS}).resize({width:340,height:120,fit:'inside',withoutEnlargement:true}).webp({quality:75}).toBuffer();
+      else if(variant==='still')body=await sharp(body,{limitInputPixels:MAX_PIXELS}).png().toBuffer();
+      if(cacheable && variant!=='original')mediaCache.set(variantKey,body);
+    }
     const extension=mime==='image/jpeg'?'jpg':mime.split('/')[1];
     const disposition=mime.startsWith('image/')?`inline; filename="imagem.${extension}"`:`attachment; filename="arquivo"; filename*=UTF-8''${dispositionName(media.filename || 'arquivo')}`;
     return reply.header('Content-Type',mime).header('X-Content-Type-Options','nosniff').header('Content-Security-Policy',"default-src 'none'; sandbox").header('Content-Disposition',disposition).header('Cache-Control','no-store').send(body);

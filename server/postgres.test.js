@@ -34,7 +34,14 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     assert.equal((await call(admin,'PATCH','/admin/users/'+member.json().user.id+'/username',{username:'Pessoa final'})).statusCode,200);
     assert.equal((await call(user,'GET','/auth/me')).json().user.name,'Pessoa final');
     const history=await call(admin,'GET','/messages?channel=general');assert.equal(history.statusCode,200);assert.equal(history.json().messages[0].attachments[0].id,id);
-    assert.equal((await call(admin,'GET','/media/'+id)).statusCode,200);
+    let binaryReads=0;const query=pg.Client.prototype.query;
+    pg.Client.prototype.query=function(sql,...args){if(typeof sql==='string'&&sql.startsWith('SELECT a.data FROM attachments'))binaryReads++;return query.call(this,sql,...args);};
+    try {
+      assert.equal((await call(admin,'GET','/media/'+id)).statusCode,200);
+      assert.equal((await call(user,'GET','/media/'+id+'?thumb=1')).statusCode,200);
+      assert.equal((await call(admin,'GET','/media/'+id)).statusCode,200);
+      assert.equal(binaryReads,1,'a mesma imagem deve ser lida do banco apenas uma vez');
+    } finally {pg.Client.prototype.query=query;}
     assert.equal((await call(admin,'DELETE','/messages/'+message.json().id)).statusCode,200);
     const remaining=(await call(admin,'GET','/messages?channel=general')).json().messages;
     assert.deepEqual(remaining.find(item=>item.id===response.json().id).reply,{id:message.json().id,deleted:true});

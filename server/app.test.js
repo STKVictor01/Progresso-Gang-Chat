@@ -9,9 +9,19 @@ import { TokenVerifier } from 'livekit-server-sdk';
 import { createApp as createRawApp } from './app.js';
 import { normalizeSoundboardWav } from './soundboard-audio.js';
 import { runtimeConfig } from './runtime-config.js';
+import { createMediaCache } from './media-cache.js';
 const options = { apiKey: 'testkey', apiSecret: randomBytes(32).toString('hex'), serverUrl: 'ws://localhost:7880', logger: false, secureCookies:false, allowedOrigins:['http://localhost:5173'] };
 
 const testPassword=randomBytes(24).toString('base64url');
+test('cache de imagens limita memória, expira e descarta itens menos usados',()=>{
+  let time=0;const cache=createMediaCache({maxBytes:4,ttlMs:10,now:()=>time});
+  cache.set('a',Buffer.from('aa'));cache.set('b',Buffer.from('bb'));
+  assert.equal(cache.get('a').toString(),'aa');
+  cache.set('c',Buffer.from('cc'));assert.equal(cache.get('b'),undefined);
+  assert.equal(cache.get('a').toString(),'aa');
+  time=10;assert.equal(cache.get('a'),undefined);assert.equal(cache.get('c'),undefined);
+  cache.set('grande',Buffer.alloc(5));assert.equal(cache.get('grande'),undefined);
+});
 test('produção exige PostgreSQL, CA e origens HTTPS seguras',()=>{
   const base={NODE_ENV:'production',PG_CHAT_DATABASE:'postgres',DATABASE_URL:'postgres://example',PG_CHAT_SITE_ORIGIN:'https://gang.example.com',LIVEKIT_URL:'wss://live.example.com',LIVEKIT_API_KEY:'key',LIVEKIT_API_SECRET:randomBytes(32).toString('hex')};
   const ca=join(import.meta.dirname,'package.json');
@@ -234,6 +244,9 @@ test('online presence and profile images use authenticated owners', async () => 
     assert.equal((await app.inject({url:'/media/'+id+'?thumb=1',headers:{cookie:''}})).statusCode,401);
     assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),attachmentIds:[id]}})).statusCode,409);
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'x'.repeat(201),avatarId:null}})).statusCode,400);
+    assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null}})).statusCode,200);
+    assert.equal((await app.inject('/media/'+id)).statusCode,404);
+    assert.equal((await app.inject('/media/'+id+'?thumb=1')).statusCode,404);
   } finally { await app.close(); }
 });
 async function createApp(options){

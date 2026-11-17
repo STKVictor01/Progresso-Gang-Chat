@@ -147,6 +147,12 @@ test('renova sessão concorrente e recuperação revoga sessões sem aceitar tok
     const email='dono@example.invalid';await request(app,'/auth/link',{username:'Vitão',password,email});provider.confirm(email);
     const owner=await request(app,'/auth/login',{email,password});assert.equal(owner.statusCode,200);
     const oldCookie=cookies(owner),access=owner.cookies.find(item=>item.name==='pg_access').value;
+    const verify=provider.verify.bind(provider);let checks=0,release;
+    const blocked=new Promise(resolve=>{release=resolve;});
+    provider.verify=async token=>{checks++;await blocked;return verify(token);};
+    const parallel=Promise.all(Array.from({length:4},()=>app.inject({url:'/channels',headers:{cookie:oldCookie}})));
+    await new Promise(resolve=>setTimeout(resolve,50));release();
+    assert.ok((await parallel).every(response=>response.statusCode===200));assert.equal(checks,1);
     provider.expire(access);
     const refreshed=await Promise.all(Array.from({length:4},()=>app.inject({url:'/channels',headers:{cookie:oldCookie}})));
     assert.ok(refreshed.every(response=>response.statusCode===200));assert.equal(provider.refreshCount,1);

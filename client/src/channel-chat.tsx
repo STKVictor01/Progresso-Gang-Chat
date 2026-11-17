@@ -10,6 +10,7 @@ import { continuesGroup } from './chat-format';
 import { GifPicker } from './gif-picker';
 import type { GifResult } from './gif-picker';
 import { gifId, gifMessage } from './giphy';
+import { chatPollDelay } from './polling';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type Reply = {id:number;name?:string;text?:string;user_id?:string|null;deleted:boolean};
@@ -143,8 +144,10 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     if (!viewer && dialog.current?.open) dialog.current.close();
   }, [viewer]);
   useEffect(() => {
-    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let running=false;
     async function refresh() {
+      if (running || controller.signal.aborted) return;
+      running=true;
       try {
         const query = new URLSearchParams({channel}); if (hydrated.current) query.set('since',String(cursor.current));
         const response = await api('/api/messages?'+query, {signal:controller.signal,cache:'no-store'});
@@ -156,10 +159,12 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
         if(data.messages.length || data.deletedIds?.length) setMessages(previous => ordered(dedupe([...absorb(previous,data.messages,userId).filter(message=>!data.deletedIds?.includes(message.id)).map(message=>message.reply&&data.deletedIds?.includes(message.reply.id)?{...message,reply:{id:message.reply.id,deleted:true}}:message),...data.messages])));
         setStatus('Histórico salvo');
       } catch { if (!controller.signal.aborted) setStatus('Sem conexão. Tentando reconectar…'); }
-      finally { if (!controller.signal.aborted) timer=setTimeout(refresh,2000); }
+      finally { running=false;if (!controller.signal.aborted) timer=setTimeout(refresh,chatPollDelay(!document.hidden,visible)); }
     }
-    void refresh(); return () => {controller.abort();clearTimeout(timer);};
-  }, [channel, userId]);
+    const resumed=()=>{if(!document.hidden){clearTimeout(timer);void refresh();}};
+    document.addEventListener('visibilitychange',resumed);
+    void refresh(); return () => {controller.abort();clearTimeout(timer);document.removeEventListener('visibilitychange',resumed);};
+  }, [channel, userId, visible]);
   useEffect(() => { if (visible && atBottom.current) bottom.current?.scrollIntoView({block:'nearest'}); }, [messages.length,visible]);
   // Conversa aberta e visível na tela: tudo o que chegou conta como lido.
   useEffect(() => {

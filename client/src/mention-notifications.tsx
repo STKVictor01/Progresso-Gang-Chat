@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useAccount } from './accounts';
 import { api } from './api';
 import { hasMention } from './mentions';
+import { activityPollDelay } from './polling';
 
 type Message = {id:number; user_id:string|null; name:string; text:string};
 type Notice = {id:number; channel:string; name:string};
@@ -39,11 +40,13 @@ export function ActivityProvider({children}:{children:ReactNode}) {
     return () => { window.removeEventListener('pointerdown',enable);window.removeEventListener('keydown',enable);void audio.current?.close();audio.current=null; };
   }, []);
   useEffect(() => {
-    let stopped=false;let timer:ReturnType<typeof setTimeout>;
+    let stopped=false,running=false;let timer:ReturnType<typeof setTimeout>;
     const cursors=new Map<string,number>();const ids=channels ? channels.split('|') : [];
     const started=new Set<string>();
     for(const channel of ids){const value=readNumber('pg-mention-cursor:'+user.id+':'+channel);if(value!==undefined)cursors.set(channel,value);}
     async function poll() {
+      if(stopped||running)return;
+      running=true;
       await Promise.all(ids.map(async channel => {
         try {
           const query=new URLSearchParams({channel});const cursor=cursors.get(channel);if(cursor!==undefined)query.set('since',String(cursor));
@@ -84,9 +87,12 @@ export function ActivityProvider({children}:{children:ReactNode}) {
           cursors.set(channel,data.cursor);writeNumber('pg-mention-cursor:'+user.id+':'+channel,data.cursor);
         } catch { /* Keep polling after transient failures. */ }
       }));
-      if(!stopped)timer=setTimeout(poll,3000);
+      running=false;
+      if(!stopped)timer=setTimeout(poll,activityPollDelay(!document.hidden));
     }
-    void poll();return()=>{stopped=true;clearTimeout(timer);};
+    const resumed=()=>{if(!document.hidden){clearTimeout(timer);void poll();}};
+    document.addEventListener('visibilitychange',resumed);
+    void poll();return()=>{stopped=true;clearTimeout(timer);document.removeEventListener('visibilitychange',resumed);};
   },[channels,user.id,user.name,key]);
   const markRead=useCallback((channel:string,id:number)=>{
     if(!Number.isSafeInteger(id)||id<=0)return;

@@ -9,7 +9,8 @@ const COLOR_SUGGESTIONS = ['#ff8b7f','#e6c48b','#f5d76e','#8fd694','#6ed3cf','#7
 
 type OnlineUser = {id:string;name:string;description:string;avatarUrl:string|null;nameColor?:string|null;status?:string};
 
-type PresenceState = { people:OnlineUser[]; profiles:OnlineUser[]; voiceChannels:Record<string,string[]> | null; refresh:()=>Promise<void>; showProfile:(id:string)=>void; nameColors:boolean; statuses:boolean };
+export type NowPlaying = {title:string;artist:string;cover?:string};
+type PresenceState = { music:Record<string,NowPlaying>; people:OnlineUser[]; profiles:OnlineUser[]; voiceChannels:Record<string,string[]> | null; refresh:()=>Promise<void>; showProfile:(id:string)=>void; nameColors:boolean; statuses:boolean };
 const PresenceContext = createContext<PresenceState | null>(null);
 // eslint-disable-next-line react-refresh/only-export-components
 export function usePresence() {
@@ -37,6 +38,7 @@ export function PresenceProvider({children}:{children:ReactNode}) {
   const [nameColors,setNameColors] = useState(false);
   const [statuses,setStatuses] = useState(false);
   const [voiceChannels,setVoiceChannels] = useState<Record<string,string[]> | null>(null);
+  const [music,setMusic] = useState<Record<string,NowPlaying>>({});
   const [selected,setSelected] = useState<string | null>(null);
   async function refresh() {
     const data = await jsonApi('/api/presence');
@@ -52,13 +54,16 @@ export function PresenceProvider({children}:{children:ReactNode}) {
     async function updateVoice() {
       try { const data = await jsonApi('/api/voice-presence'); if (active) setVoiceChannels(data.channels); }
       catch { if (active) setVoiceChannels(null); }
+      // O que toca em cada call, para quem está fora dela também ver.
+      try { const data = await jsonApi('/api/music-status'); if (active) setMusic(data.rooms && typeof data.rooms === 'object' ? data.rooms : {}); }
+      catch { if (active) setMusic({}); }
     }
     void updateVoice();
     const timer = setInterval(() => void updateVoice(), 5000);
     return () => { active = false; clearInterval(timer); };
   }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><div><h2 style={profile.nameColor ? {color:profile.nameColor} : undefined}>{profile.name}</h2>{profile.status && <p className="profile-status">{profile.status}</p>}</div><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}{profile.id === user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : <p>{profile.description || 'Sem descrição ainda.'}</p>}</dialog>}</PresenceContext.Provider>;
+  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><div><h2 style={profile.nameColor ? {color:profile.nameColor} : undefined}>{profile.name}</h2>{profile.status && <p className="profile-status">{profile.status}</p>}</div><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}{profile.id === user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : <p>{profile.description || 'Sem descrição ainda.'}</p>}</dialog>}</PresenceContext.Provider>;
 }
 function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUrl:string|null};className?:string}) {
   return person.avatarUrl ? <img className={className} src={person.avatarUrl} alt=""/> : <span className={className}>{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>;

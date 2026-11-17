@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { MouseEvent, PointerEvent, ReactNode } from 'react';
+import type { MouseEvent, PointerEvent, ReactNode, CSSProperties } from 'react';
 import type { Participant } from 'livekit-client';
 import { useRoomContext } from '@livekit/components-react';
 import { ParticipantAudioControls } from './call-audio';
@@ -77,12 +77,12 @@ export function useParticipantAudioMenu(participant: Participant) {
   return { handlers, menu, openSettings };
 }
 
-export function ParticipantAudioTarget({ participant, className, children }: {participant:Participant;className:string;children:ReactNode}) {
+export function ParticipantAudioTarget({ participant, className, children, style }: {participant:Participant;className:string;children:ReactNode;style?:CSSProperties}) {
   const {handlers, menu, openSettings} = useParticipantAudioMenu(participant);
   const {muted}=useCallPreferences();
   const silenced=isListenerMuted(muted,listenerId(participant.identity),'microphone');
   const name = participant.name || 'Participante';
-  return <div className={className + (!participant.isLocal ? ' participant-audio-target' : '')} {...handlers}>
+  return <div className={className + (!participant.isLocal ? ' participant-audio-target' : '')} style={style} {...handlers}>
     {children}
     {!participant.isLocal && <button type="button" className={'participant-audio-button'+(silenced?' is-muted':'')} title={'Ajustar áudio de '+name} aria-label={'Ajustar áudio de '+name+(silenced?' (voz silenciada)':'')} aria-haspopup="dialog" onClick={event=>openSettings(event.currentTarget,true)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z"/>{silenced?<path d="M3 3l18 18"/>:<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>}</svg></button>}
     {menu}

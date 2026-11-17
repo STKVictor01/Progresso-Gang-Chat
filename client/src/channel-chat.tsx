@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom';
 import type { ClipboardEvent, FormEvent } from 'react';
 import { usePresence } from './presence';
 import { useAccount } from './accounts';
-import { mentionQuery, mentionRanges } from './mentions';
+import { hasMention, mentionQuery, mentionRanges } from './mentions';
+import { useActivity } from './mention-notifications';
 import { continuesGroup } from './chat-format';
 import { GifPicker } from './gif-picker';
 import type { GifResult } from './gif-picker';
@@ -69,6 +70,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const limitMb = 100;
   const {profiles} = usePresence();
   const {user} = useAccount();
+  const {markRead} = useActivity();
   const userId = user.id;
   const inputId = useId();
   const [messages, setMessages] = useState<TextMessage[]>([]);
@@ -159,6 +161,14 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     void refresh(); return () => {controller.abort();clearTimeout(timer);};
   }, [channel, userId]);
   useEffect(() => { if (visible && atBottom.current) bottom.current?.scrollIntoView({block:'nearest'}); }, [messages.length,visible]);
+  // Conversa aberta e visível na tela: tudo o que chegou conta como lido.
+  useEffect(() => {
+    if (!visible) return;
+    const newest = Math.max(0, ...messages.filter(message => !message.pending).map(message => message.id));
+    const mark = () => { if (document.visibilityState === 'visible' && newest) markRead(channel, newest); };
+    mark(); document.addEventListener('visibilitychange', mark);
+    return () => document.removeEventListener('visibilitychange', mark);
+  }, [visible, messages, channel, markRead]);
   // Envio instantâneo: a mensagem aparece na hora e é confirmada quando o servidor responder.
   async function deliver(temp: TextMessage) {
     setMessages(previous => previous.map(message => message.clientId === temp.clientId ? {...message, pending:'sending'} : message));
@@ -251,7 +261,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
+      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(message.user_id!==user.id&&hasMention(message.text,user.name)?' mentions-me':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
         onPointerDown={event=>{if(event.pointerType!=='touch'||message.pending)return;cancelPress();const {clientX:x,clientY:y}=event;press.current={x,y,timer:window.setTimeout(()=>{press.current=null;pressedAt.current=now();held.current={message,x:x-100,y:y+12};setHeldId(message.id);navigator.vibrate?.(12);},450)};}}
         onPointerMove={event=>{const start=press.current;if(start&&Math.hypot(event.clientX-start.x,event.clientY-start.y)>10)cancelPress();}}
         onPointerUp={releasePress} onPointerCancel={releasePress}

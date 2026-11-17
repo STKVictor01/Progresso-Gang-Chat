@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { coverPalette, DEFAULT_PALETTE } from './cover-colors';
+import type { CoverPalette } from './cover-colors';
 import { jsonApi } from './api';
 import { useMultibandTrackVolume, useParticipants, useTracks } from '@livekit/components-react';
 import { Track } from 'livekit-client';
@@ -6,8 +9,28 @@ import { ParticipantAudioTarget } from './participant-audio-menu';
 import { useCallPreferences } from './call-preferences';
 import { isListenerMuted, listenerId } from './call-settings';
 
-type MusicState = {current:{title:string;url?:string;query?:string}|null;queue:{url?:string;query?:string}[];error:string;available:boolean};
+type MusicState = {current:{title:string;artist?:string;cover?:string;url?:string;query?:string}|null;queue:{url?:string;query?:string}[];error:string;available:boolean};
 const waveformOptions={bands:12,loPass:1,hiPass:256,updateInterval:120};
+export function MusicNote({size=20}:{size?:number}) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M9 18V5l10-2v13M9 18c0 1.7-1.6 3-3.5 3S2 20 2 18.5 3.6 16 5.5 16 9 16.5 9 18Zm10-2c0 1.7-1.6 3-3.5 3S12 18 12 16.5 13.6 14 15.5 14s3.5.5 3.5 2Z"/></svg>;
+}
+// Capa da música, ou uma nota musical quando não há capa.
+export function CoverArt({cover,className='music-cover'}:{cover?:string;className?:string}) {
+  const [failed,setFailed]=useState<string|null>(null);
+  return cover && failed!==cover ? <img className={className} src={cover} alt="" onError={()=>setFailed(cover)}/> : <span className={className+' music-cover-empty'}><MusicNote/></span>;
+}
+// Paleta tirada da capa; enquanto carrega (ou sem capa), usa as cores padrão.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useCoverPalette(cover?:string):CoverPalette {
+  const [loaded,setLoaded]=useState<Record<string,CoverPalette>>({});
+  useEffect(()=>{
+    if(!cover||loaded[cover])return;
+    let alive=true;
+    coverPalette(cover).then(palette=>{if(alive)setLoaded(previous=>({...previous,[cover]:palette}));}).catch(()=>{});
+    return()=>{alive=false;};
+  },[cover,loaded]);
+  return cover&&loaded[cover]||DEFAULT_PALETTE;
+}
 export function MusicNowPlaying({channel}:{channel:string}) {
   const participants=useParticipants();
   const bot=participants.find(participant=>participant.identity.startsWith('music-bot:'));
@@ -23,9 +46,12 @@ export function MusicNowPlaying({channel}:{channel:string}) {
     async function refresh(){try{const data=await jsonApi('/api/music/'+encodeURIComponent(channel)) as MusicState;if(!stopped)setState(data);}catch{if(!stopped)setState(null);}finally{if(!stopped)timer=setTimeout(refresh,3000);}}
     void refresh();return()=>{stopped=true;clearTimeout(timer);};
   },[channel,bot]);
+  const current=state?.current;
+  const palette=useCoverPalette(current?.cover);
   if(!bot)return null;
-  const title=state?.current?.title;
-  return <ParticipantAudioTarget participant={bot} className="music-now-playing"><img src="/bot-musica.png" alt=""/><div className="music-now-copy"><strong>(Bot) Ed Motta</strong><span>{title ? 'Reproduzindo: '+title : 'Aguardando música'}</span></div><div className="music-wave" aria-hidden="true">{Array.from({length:12},(_,index)=><i key={index} style={{transform:`scaleY(${Math.max(.1,Math.min(1,(bands[index]||0)*1.2))})`}} />)}</div></ParticipantAudioTarget>;
+  const loading=!!current && (!current.title || current.title==='Carregando…');
+  const colors={'--music-from':palette.from,'--music-to':palette.to,'--music-accent':palette.accent} as CSSProperties;
+  return <ParticipantAudioTarget participant={bot} className="music-now-playing" style={colors}><CoverArt cover={current?.cover}/><div className="music-now-copy"><strong>{current ? loading ? 'Carregando…' : current.artist || 'Artista desconhecido' : 'Música'}</strong><span>{current ? loading ? 'Buscando a música' : current.title : 'Nenhuma música tocando'}</span></div><div className="music-wave" aria-hidden="true">{Array.from({length:12},(_,index)=><i key={index} style={{transform:`scaleY(${Math.max(.1,Math.min(1,(bands[index]||0)*1.2))})`}} />)}</div></ParticipantAudioTarget>;
 }
 export function MusicControl({channel}:{channel:string}) {
   const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');

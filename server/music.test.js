@@ -84,7 +84,7 @@ test('pular avança a fila e parar limpa músicas pendentes', async () => {
     for(let i=0;i<50&&!children.length;i++)await wait(5);
     const child=children[0];
     const token=await new TokenVerifier('test','secret').verify(child.commands[0].token);
-    assert.equal(token.name,'Ed Motta');
+    assert.equal(token.name,'Música');
     event(child,{event:'ready'});await wait(10);
     await post('',{url:'Segunda'});
     assert.equal((await post('/skip')).statusCode,200);
@@ -101,5 +101,37 @@ test('pular avança a fila e parar limpa músicas pendentes', async () => {
     await post('',{url:'Depois de parar'});await wait(10);
     assert.equal(child.commands.at(-1).query,'Depois de parar');
     assert.equal(children.length,1);
+  } finally {await app.close();}
+});
+
+test('mostra artista e capa da música para todos, sem expor o endereço externo', async () => {
+  const app=Fastify(),children=[];
+  app.addHook('onRequest',async request=>{request.user={id:'user-1'};});
+  function spawnWorker(){
+    const child=new EventEmitter();child.pid=2147483647;child.exitCode=null;child.stdout=new PassThrough();child.commands=[];
+    child.stdin=new Writable({write(chunk,_encoding,callback){child.commands.push(JSON.parse(chunk.toString()));callback();}});
+    children.push(child);return child;
+  }
+  const fetched=[];
+  const fetchImpl=async url=>{fetched.push(url);return new Response(Buffer.from([255,216,255,0]),{status:200,headers:{'content-type':'image/jpeg'}});};
+  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const event=(child,data)=>child.stdout.write(JSON.stringify(data)+'\n');
+  installMusic(app,{accounts:{voiceExists:async()=>true},roomService:{listParticipants:async()=>[{identity:'user-1:session'}]},apiKey:'test',apiSecret:'secret',serverUrl:'ws://localhost:7880',spawnWorker,fetchImpl,terminateWorker:()=>{},pythonPath:process.execPath});
+  try {
+    assert.deepEqual((await app.inject('/music-status')).json(),{rooms:{}});
+    assert.equal((await app.inject({method:'POST',url:'/music/room',payload:{url:'Tempo Perdido'}})).statusCode,202);
+    for(let i=0;i<50&&!children.length;i++)await wait(5);
+    const child=children[0];event(child,{event:'ready'});await wait(10);
+    event(child,{event:'playing',title:'Tempo Perdido',artist:'Legião Urbana',cover:'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',url:'https://www.youtube.com/watch?v=abcdefghijk'});await wait(10);
+    const status=(await app.inject('/music-status')).json().rooms.room;
+    assert.equal(status.title,'Tempo Perdido');assert.equal(status.artist,'Legião Urbana');
+    assert.match(status.cover,/^\/api\/music\/room\/cover\?v=[a-f0-9]{12}$/);
+    assert.ok(!JSON.stringify((await app.inject('/music/room')).json()).includes('ytimg'));
+    const cover=await app.inject('/music/room/cover');
+    assert.equal(cover.statusCode,200);assert.equal(cover.headers['content-type'],'image/jpeg');
+    await app.inject('/music/room/cover');assert.equal(fetched.length,1);
+    event(child,{event:'playing',title:'Outra',artist:'X',cover:'https://evil.example.com/capa.jpg'});await wait(10);
+    assert.equal((await app.inject('/music-status')).json().rooms.room.cover,undefined);
+    assert.equal((await app.inject('/music/room/cover')).statusCode,404);
   } finally {await app.close();}
 });

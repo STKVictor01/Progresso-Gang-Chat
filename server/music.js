@@ -2,12 +2,21 @@ import { spawn, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AccessToken } from 'livekit-server-sdk';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const python = process.env.PG_CHAT_PYTHON || (process.platform==='win32' ? join(root, '.tools', 'music-venv', 'Scripts', 'python.exe') : '/usr/bin/python3');
 const worker = join(root, 'server', 'music_worker.py');
+// Capas só de hosts conhecidos do YouTube e do SoundCloud; o servidor as repassa ao site.
+export function coverUrl(value) {
+  if (typeof value !== 'string' || value.length > 500) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+    return /^(i\d?\.ytimg\.com|yt\d\.ggpht\.com|i\d\.sndcdn\.com)$/.test(url.hostname) ? url.href : null;
+  } catch { return null; }
+}
 function videoId(value) {
   if (typeof value !== 'string' || value.length > 1000) return null;
   try {
@@ -39,7 +48,7 @@ function terminateMusicProcess(child) {
   if(process.platform==='win32') execFile('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true},()=>{});
   else { try { process.kill(-child.pid,'SIGTERM'); } catch { child.kill(); } }
 }
-export function installMusic(app, { log = app.log, accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
+export function installMusic(app, { log = app.log, accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, fetchImpl=globalThis.fetch, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
   const rooms = new Map();
   function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,ready:false,startupFailures:0,idleTimer:null,error:'',serial:0}); return rooms.get(room); }
   async function authorize(request,reply) {
@@ -76,7 +85,7 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
     player.starting=true;
     const serial=++player.serial;
     try {
-      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Ed Motta',ttl:'24h'});
+      const token=new AccessToken(apiKey,apiSecret,{identity:'music-bot:'+randomUUID(),name:'Música',ttl:'24h'});
       token.addGrant({roomJoin:true,room,canPublish:true,canSubscribe:false});
       const jwt=await token.toJwt();
       if(player.serial!==serial)return;
@@ -87,12 +96,32 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
       player.process=child; player.starting=false; child.stdin.on('error',()=>{});
       child.stdin.write(JSON.stringify({serverUrl,token:jwt})+'\n');
       let buffer='';
-      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='ready'){player.ready=true;player.startupFailures=0;void next(room);}if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=String(event.message).slice(0,200);if(event.event==='disconnected')terminateWorker(child);if(event.event==='finished'){player.current=null;void next(room);}}catch{}});
+      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='ready'){player.ready=true;player.startupFailures=0;void next(room);}if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);player.current.artist=typeof event.artist==='string'?event.artist.slice(0,120):'';player.current.cover=coverUrl(event.cover)||undefined;const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=String(event.message).slice(0,200);if(event.event==='disconnected')terminateWorker(child);if(event.event==='finished'){player.current=null;void next(room);}}catch{}});
       child.on('error',()=>{if(player.serial===serial)player.error='O serviço de música não iniciou.';});
       child.on('close',code=>{if(player.serial!==serial)return;if(!player.ready)player.startupFailures++;player.process=null;player.ready=false;clearTimeout(player.idleTimer);player.idleTimer=null;if(player.current){const {title:_title,...item}=player.current;if(!item.retried)player.queue.unshift({...item,retried:true});player.current=null;}if(code && !player.error)player.error='O serviço de música foi interrompido.';if(player.queue.length && child.pid && player.startupFailures<2)void next(room);});
     } catch { if(player.serial===serial){player.starting=false;player.error='Não foi possível iniciar a música.';} }
   }
-  function snapshot(room) {const p=state(room);return {current:p.current,queue:p.queue,error:p.error,available:existsSync(pythonPath)};}
+  // O endereço externo da capa fica no servidor; o site recebe um endereço próprio.
+  const publicCurrent = (room, current) => { if (!current) return null; const {cover, ...rest} = current; return cover ? {...rest, cover:'/api/music/'+encodeURIComponent(room)+'/cover?v='+createHash('sha256').update(cover).digest('hex').slice(0,12)} : rest; };
+  function snapshot(room) {const p=state(room);return {current:publicCurrent(room,p.current),queue:p.queue,error:p.error,available:existsSync(pythonPath)};}
+  // Qualquer pessoa da comunidade vê o que toca em cada call, mesmo fora dela.
+  app.get('/music-status',async()=>({rooms:Object.fromEntries([...rooms].filter(([,player])=>player.current&&player.current.title!=='Carregando…').map(([room,player])=>{const {title,artist,cover}=publicCurrent(room,player.current);return [room,{title,artist:artist||'',cover}];}))}));
+  const covers = new Map();
+  app.get('/music/:room/cover',async(request,reply)=>{
+    const source=rooms.get(request.params.room)?.current?.cover;
+    if(!source)return reply.code(404).send({error:'Sem capa.'});
+    let image=covers.get(source);
+    if(!image){
+      try {
+        const response=await fetchImpl(source,{signal:AbortSignal.timeout(8000),redirect:'error'});
+        const type=String(response.headers.get('content-type')||'').split(';')[0];
+        if(!response.ok||!['image/jpeg','image/png','image/webp'].includes(type)||Number(response.headers.get('content-length')||0)>2*1024*1024)throw Error('capa');
+        const body=Buffer.from(await response.arrayBuffer());if(body.length>2*1024*1024)throw Error('capa');
+        image={type,body};covers.set(source,image);while(covers.size>20)covers.delete(covers.keys().next().value);
+      } catch { return reply.code(502).send({error:'Capa indisponível.'}); }
+    }
+    return reply.header('Content-Type',image.type).header('X-Content-Type-Options','nosniff').header('Content-Security-Policy',"default-src 'none'; sandbox").header('Cache-Control','private, max-age=3600').send(image.body);
+  });
   app.get('/music/:room',async(request,reply)=>{if(!await authorize(request,reply))return;return snapshot(request.params.room);});
   app.post('/music/:room',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(request,reply)=>{
     if(!await authorize(request,reply))return;

@@ -62,7 +62,9 @@ async def play(item, source):
         youtube = re.fullmatch(r'[a-zA-Z0-9_-]{11}', str(info.get('id', ''))) and 'youtube' in str(info.get('extractor', 'youtube')).lower()
         headers = ''.join(f'{k}: {v}\r\n' for k, v in (info.get('http_headers') or {}).items() if '\n' not in str(v) and '\r' not in str(v))
         process = await asyncio.create_subprocess_exec(imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-headers', headers, '-i', info['url'], '-f', 's16le', '-ac', '2', '-ar', '48000', '-', stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        event('playing', title=str(info.get('title') or 'Música')[:200], url='https://www.youtube.com/watch?v=' + info['id'] if youtube else '')
+        artist = str(info.get('artist') or info.get('creator') or info.get('uploader') or info.get('channel') or '').removesuffix(' - Topic')[:120]
+        cover = f"https://i.ytimg.com/vi/{info['id']}/hqdefault.jpg" if youtube else str(info.get('thumbnail') or '')
+        event('playing', title=str(info.get('title') or 'Música')[:200], artist=artist, cover=cover, url='https://www.youtube.com/watch?v=' + info['id'] if youtube else '')
         while True:
             try:
                 data = await process.stdout.readexactly(3840)

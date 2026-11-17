@@ -1029,3 +1029,46 @@ input::placeholder { color: #949387; }
 .own-description textarea, .admin-dialog textarea { font:inherit; font-size:15px; border:1px solid #68685d; border-radius:6px; }
 @media (max-width:767px) { .admin-dialog.profile-dialog { width:100vw; max-width:100vw; } }
 .own-description textarea { font-weight:400; }
+
+/* ==========================================================================
+   HUD da música: capa, artista e cores tiradas da capa.
+   ========================================================================== */
+.music-now-playing { background:linear-gradient(110deg,var(--music-from,#30201e),var(--music-to,#211f1c)); border-color:color-mix(in srgb,var(--music-accent,#ed8275) 35%,transparent); transition:background .6s ease, border-color .6s ease; }
+.music-now-playing .music-wave i { background:var(--music-accent,#ed8275); box-shadow:0 0 8px color-mix(in srgb,var(--music-accent,#ed8275) 45%,transparent); transition:transform .12s linear, background .6s ease; }
+.music-cover { width:44px; height:44px; flex-shrink:0; border-radius:8px; object-fit:cover; box-shadow:0 4px 14px #0006; }
+.music-cover-empty { display:grid; place-items:center; color:#f4e8db; background:linear-gradient(135deg,#5a2c26,#2a2420); }
+.music-now-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.music-member-cover { object-fit:cover; border-radius:8px !important; }
+.member-avatar.music-cover-empty { border-radius:8px; }
+@media(max-width:480px) { .music-cover { width:38px; height:38px; } }
+
+/* Música tocando, visível para quem está fora da call. */
+.voice-channel-music { display:flex; align-items:center; gap:6px; margin-top:6px; color:var(--red-light); font-size:11px; font-weight:500; min-width:0; }
+.voice-channel-music > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mini-eq { display:inline-flex; align-items:flex-end; gap:2px; height:10px; flex-shrink:0; }
+.mini-eq i { width:2px; height:100%; border-radius:2px; background:currentColor; transform-origin:bottom; animation:mini-eq 0.9s ease-in-out infinite; }
+.mini-eq i:nth-child(2) { animation-delay:-.3s; }
+.mini-eq i:nth-child(3) { animation-delay:-.6s; }
+@keyframes mini-eq { 0%,100% { transform:scaleY(.3); } 50% { transform:scaleY(1); } }
+.voice-welcome-music { display:flex; align-items:center; gap:12px; max-width:340px; width:100%; margin:12px 0 4px; padding:10px 12px; text-align:left; border:1px solid #4a3a33; border-radius:10px; background:#1f1c19; }
+.voice-welcome-music > span { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.voice-welcome-music small { display:flex; align-items:center; gap:5px; color:var(--red-light); font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; }
+.voice-welcome-music strong, .voice-welcome-music > span > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.voice-welcome-music > span > span { color:var(--muted); font-size:13px; }
+
+/* ==========================================================================
+   Não lidas e menções.
+   ========================================================================== */
+.community-shell .channel { position:relative; }
+.channel.has-unread > span, .channel.has-unread .voice-channel-info > span:first-child { color:#fff; font-weight:700; }
+.channel-badge { flex-shrink:0; margin-left:auto; }
+.voice-channel .channel-badge { margin-left:4px; }
+.unread-dot { width:9px; height:9px; border-radius:50%; background:#f23f42; box-shadow:0 0 0 3px var(--surface); }
+.mention-badge { display:grid; place-items:center; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:#f23f42; color:#fff; font-size:12px; font-weight:800; line-height:1; }
+.mobile-menu-button { position:relative; }
+.menu-unread-dot { position:absolute; top:6px; right:6px; width:10px; height:10px; border-radius:50%; background:#f23f42; box-shadow:0 0 0 2px var(--raised); }
+/* Mensagem em que mencionaram você: faixa dourada e um @ ao lado. */
+.public-message.mentions-me { background:#3a301c66; box-shadow:inset 3px 0 0 #e6c48b; }
+.public-message.mentions-me:hover { background:#3a301c99; }
+.public-message.mentions-me::before { content:'@'; position:absolute; left:-9px; top:8px; display:grid; place-items:center; width:16px; height:16px; border-radius:50%; background:#e6c48b; color:#1a1a17; font-size:10px; font-weight:800; line-height:1; }
+@media (prefers-reduced-motion:reduce) { .mini-eq i { animation:none; transform:scaleY(.7); } }

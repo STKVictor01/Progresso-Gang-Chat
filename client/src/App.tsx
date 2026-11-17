@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { RoomContext, useRoomContext, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useConnectionState, useIsSpeaking, useLocalParticipant, useTracks } from '@livekit/components-react';
-import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
+import { ConnectionState, DisconnectReason, Room, RoomEvent, Track } from 'livekit-client';
 import type { Participant } from 'livekit-client';
 import '@livekit/components-styles';
 import './App.css';
@@ -194,7 +194,7 @@ function AuthenticatedApp() {
   const [error, setError] = useState('');
   const switching = useRef(false);
   useEffect(() => {
-    const disconnected = () => setActiveVoice(null);
+    const disconnected = (reason?: DisconnectReason) => { setActiveVoice(null); if (reason===DisconnectReason.PARTICIPANT_REMOVED) setError('Você foi removido desta call por um administrador.'); };
     room.on(RoomEvent.Disconnected, disconnected);
     return () => { room.off(RoomEvent.Disconnected, disconnected); void room.disconnect(); };
   }, [room]);

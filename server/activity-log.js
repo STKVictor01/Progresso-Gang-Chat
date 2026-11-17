@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 
-const events=new Set(['server-start','server-stop','login','logout','voice-join','voice-leave','server-error','message-send','message-delete','user-register','user-update','channel-create','channel-update','site-update','sound-delete']);
+const events=new Set(['server-start','server-stop','login','logout','voice-join','voice-leave','voice-remove','server-error','message-send','message-delete','user-register','user-update','channel-create','channel-update','site-update','sound-delete']);
 const clean=value=>typeof value==='string'?value.replace(/[\r\n\u0000-\u001f]/g,' ').slice(0,120):undefined;
 
 export function createActivityLog(file) {

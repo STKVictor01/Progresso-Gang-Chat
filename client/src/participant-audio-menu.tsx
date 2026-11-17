@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MouseEvent, PointerEvent, ReactNode } from 'react';
 import type { Participant } from 'livekit-client';
+import { useRoomContext } from '@livekit/components-react';
 import { ParticipantAudioControls } from './call-audio';
 import { createLongPress } from './long-press';
+import { useAccount } from './accounts';
+import { jsonApi } from './api';
 
 // The hook shares its portal with the tile component and the sidebar.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -11,7 +14,21 @@ export function useParticipantAudioMenu(participant: Participant) {
   const settings = useRef<HTMLDivElement>(null);
   const hold = useRef(createLongPress());
   const [position, setPosition] = useState({top:0,left:0});
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState('');
+  const {user} = useAccount();
+  const room = useRoomContext();
   const name = participant.name || 'Participante';
+  const targetId = participant.identity.split(':')[0];
+  const canRemove = user.role === 'admin' && targetId !== user.id && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(targetId);
+
+  async function removeParticipant() {
+    if (!window.confirm('Remover '+name+' desta call? A pessoa poderá entrar novamente.')) return;
+    setRemoving(true); setError('');
+    try { await jsonApi('/api/admin/voice/'+encodeURIComponent(room.name)+'/kick','POST',{userId:targetId}); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível remover a pessoa da call.'); }
+    finally { setRemoving(false); }
+  }
 
   function openSettings(anchor: HTMLElement, toggle = false) {
     if (participant.isLocal || !settings.current) return;
@@ -54,7 +71,7 @@ export function useParticipantAudioMenu(participant: Participant) {
       if (isTarget(event) && hold.current.consumeClick()) { event.preventDefault(); event.stopPropagation(); }
     },
   };
-  const menu = !participant.isLocal && createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Áudio de '+name}><strong>{name}</strong><ParticipantAudioControls participant={participant} /></div>, document.body);
+  const menu = !participant.isLocal && createPortal(<div popover="auto" ref={settings} className="voice-audio-popover" style={{top:position.top,left:position.left}} role="dialog" aria-label={'Opções de '+name}><strong>{name}</strong><ParticipantAudioControls participant={participant} />{canRemove&&<><button type="button" className="voice-remove-button" disabled={removing} onClick={()=>void removeParticipant()}>{removing?'Removendo…':'Remover da call'}</button>{error&&<p className="voice-remove-error" role="alert">{error}</p>}</>}</div>, document.body);
   return { handlers, menu, openSettings };
 }
 

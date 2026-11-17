@@ -442,6 +442,11 @@ input::placeholder { color: #949387; }
 .voice-audio-popover { --text:#eee8dc; --muted:#aaa99d; --raised:#22231f; --line:#34352f; --gold:#d6c6a3; --red:#c6352c; --red-light:#ff8b7f; position:fixed; inset:auto; margin:0; width:min(280px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:14px; color:var(--text); background:var(--raised); border:1px solid #68685d; border-radius:6px; box-shadow:0 12px 35px #000a; font-family:'Inter Variable','Segoe UI',sans-serif; }
 .voice-audio-popover .participant-audio-controls { margin-top:8px; padding:0; border:0; }
 .voice-audio-popover .participant-audio-controls label { line-height:1.4; }
+.voice-remove-button { display:block; width:100%; margin-top:12px; padding:10px; text-align:left; color:var(--red-light); background:transparent; border:0; border-top:1px solid var(--line); border-radius:4px; cursor:pointer; }
+.voice-remove-button:hover { background:#522522; color:#fff; }
+.voice-remove-button:focus-visible { outline:2px solid var(--gold); }
+.voice-remove-button:disabled { opacity:.6; cursor:wait; }
+.voice-remove-error { color:var(--red-light); font-size:.85rem; }
 .voice-profile-button,.online-profile-button { background:transparent; color:inherit; border:0; cursor:pointer; padding:0; }
 .voice-profile-button { flex:none; border-radius:50%; }
 .voice-profile-button img,.profile-large-avatar { object-fit:cover; }

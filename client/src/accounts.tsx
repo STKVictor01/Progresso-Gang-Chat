@@ -117,7 +117,7 @@ function ChannelOrder(){
     <button type="button" className="button primary" disabled={busy||!changed} onClick={()=>void save()}>{busy?'Salvando…':'Salvar ordem'}</button>{status&&<p role="status">{status}</p>}</section>;
 }
 type ServerEvent = {time:number;event:string;actor?:string;channel?:string;route?:string;status?:number};
-const eventNames:Record<string,string> = {'server-start':'Servidor iniciado','server-stop':'Servidor encerrado','login':'Entrou no site','logout':'Saiu do site','voice-join':'Entrou na call','voice-leave':'Saiu da call','server-error':'Erro no servidor','message-send':'Enviou mensagem','message-delete':'Excluiu mensagem','user-register':'Criou conta','user-update':'Alterou uma conta','user-rename':'Alterou um nome de usuário','channel-create':'Criou canal','channel-update':'Alterou canal','site-update':'Alterou o site','sound-delete':'Excluiu som'};
+const eventNames:Record<string,string> = {'server-start':'Servidor iniciado','server-stop':'Servidor encerrado','login':'Entrou no site','logout':'Saiu do site','voice-join':'Entrou na call','voice-leave':'Saiu da call','voice-remove':'Removeu participante da call','server-error':'Erro no servidor','message-send':'Enviou mensagem','message-delete':'Excluiu mensagem','user-register':'Criou conta','user-update':'Alterou uma conta','user-rename':'Alterou um nome de usuário','channel-create':'Criou canal','channel-update':'Alterou canal','site-update':'Alterou o site','sound-delete':'Excluiu som'};
 function ServerLogs(){
   const {voice,text}=useAccount();
   const [events,setEvents]=useState<ServerEvent[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);

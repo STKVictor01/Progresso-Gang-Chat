@@ -13,7 +13,7 @@ import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 24;
+export const HEALTH_VERSION = 25;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -252,6 +252,27 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       lastVoiceMembers=current;
       return {channels};
   }
+  app.post('/admin/voice/:room/kick', async (request,reply) => {
+    const {room}=request.params, {userId}=request.body ?? {};
+    if(typeof room!=='string' || !(await accounts.voiceExists(room)) || typeof userId!=='string' || !UUID.test(userId)) return reply.code(400).send({error:'Canal ou participante inválido.'});
+    if(userId===request.user.id) return reply.code(403).send({error:'Você não pode remover a própria conta da call.'});
+    let participants;
+    try { participants=await roomService.listParticipants(room); }
+    catch { return reply.code(503).send({error:'Não foi possível consultar a call. Tente novamente.'}); }
+    const targets=participants.filter(participant=>{
+      const parts=participant.identity.split(':');
+      return parts.length===2 && parts[0]===userId && UUID.test(parts[1]);
+    });
+    if(!targets.length) return reply.code(404).send({error:'A pessoa não está mais nesta call.'});
+    const results=await Promise.allSettled(targets.map(target=>roomService.removeParticipant(room,target.identity)));
+    if(results.some(result=>result.status==='fulfilled')) {
+      if(voiceRequest) await voiceRequest.catch(()=>{});
+      voiceSnapshotAt=0;
+      activity.record('voice-remove',{actor:request.user.username,channel:'voice:'+room});
+    }
+    if(results.some(result=>result.status==='rejected')) return reply.code(503).send({error:'Não foi possível remover todas as conexões. Tente novamente.'});
+    return {ok:true};
+  });
   app.get('/voice-presence', async (_request,reply) => {
     reply.header('Cache-Control','no-store');
     try { return await getVoicePresence(); }

@@ -124,6 +124,37 @@ test('voice presence reports an unavailable service instead of empty channels', 
   try { assert.equal((await app.inject('/voice-presence')).statusCode,503); }
   finally { await app.close(); }
 });
+test('somente administradores removem as conexões de outra conta da call escolhida', async () => {
+  let members=[], fail=false;
+  const removed=[];
+  const roomService={
+    listParticipants:async room=>{assert.equal(room,'geral');return members;},
+    removeParticipant:async(room,identity)=>{assert.equal(room,'geral');if(fail)throw Error('unavailable');removed.push(identity);members=members.filter(member=>member.identity!==identity);},
+  };
+  const app=await createApp({...options,dbPath:':memory:',roomService});
+  try {
+    const owner=(await app.inject('/presence')).json().users[0].id;
+    const invite=await app.inject({method:'POST',url:'/admin/invites',payload:{}});
+    const member=await app.inject({method:'POST',url:'/auth/register',headers:{cookie:''},payload:{token:invite.json().token,username:'Pessoa teste',password:testPassword}});
+    const memberId=member.json().user.id, other=randomUUID();
+    const first=memberId+':'+randomUUID(),second=memberId+':'+randomUUID(),otherIdentity=other+':'+randomUUID();
+    members=[first,second,otherIdentity,'music-bot:geral'].map(identity=>({identity}));
+    const send=(payload,headers={})=>app.inject({method:'POST',url:'/admin/voice/geral/kick',headers,payload});
+    const memberHeaders={cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf};
+    assert.equal((await send({userId:other},memberHeaders)).statusCode,403);
+    assert.equal((await send({userId:memberId},{'x-csrf-token':''})).statusCode,403);
+    assert.equal((await send({userId:owner})).statusCode,403);
+    assert.equal((await send({userId:'music-bot'})).statusCode,400);
+    assert.equal((await send({userId:randomUUID()})).statusCode,404);
+    assert.equal((await app.inject({method:'POST',url:'/admin/voice/inexistente/kick',payload:{userId:memberId}})).statusCode,400);
+    assert.deepEqual(removed,[]);
+    fail=true;assert.equal((await send({userId:memberId})).statusCode,503);fail=false;
+    assert.equal((await send({userId:memberId})).statusCode,200);
+    assert.deepEqual(removed.sort(),[first,second].sort());
+    assert.deepEqual(members.map(item=>item.identity),[otherIdentity,'music-bot:geral']);
+    assert.ok((await app.inject('/admin/logs')).json().events.some(entry=>entry.event==='voice-remove'&&entry.actor==='Vitão'&&entry.channel==='voice:geral'));
+  } finally {await app.close();}
+});
 test('logs são restritos a administradores e não guardam texto das mensagens', async () => {
   const app=await createApp({...options,dbPath:':memory:'});
   try {

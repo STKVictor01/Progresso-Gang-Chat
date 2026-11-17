@@ -6,7 +6,7 @@ import { outputDeviceRemoved } from './call-settings';
 
 // O LiveKit troca a saída das faixas remotas; sons locais usam o dispositivo do sistema.
 export function AudioOutputControl({icon,onUnsupported}:{icon:ReactNode;onUnsupported:()=>void}) {
-  if (!supportsAudioOutputSelection()) return <button className="button output-toggle" type="button" aria-disabled="true" title="Saída escolhida pelo sistema" aria-label="Saída de áudio indisponível neste navegador; use as configurações do sistema" onClick={onUnsupported}>{icon}</button>;
+  if (!supportsAudioOutputSelection()) return <button className="button output-toggle" type="button" aria-disabled="true" title="Saída escolhida pelo sistema" aria-label="Escolha de saída indisponível neste navegador" onClick={onUnsupported}>{icon}</button>;
   return <AvailableOutput icon={icon}/>;
 }
 
@@ -52,7 +52,7 @@ function AvailableOutput({icon}:{icon:ReactNode}) {
   },[room,change]);
   const choices=devices.filter(device=>device.deviceId && device.deviceId!=='default');
   return <div className="output-control">
-    <label className="output-select">{icon}<span className="sr-only">Saída de áudio</span><select value={activeDeviceId || 'default'} disabled={busy} onChange={event=>void change(event.target.value)} aria-describedby="audio-output-status"><option value="default">Padrão do sistema</option>{activeDeviceId && activeDeviceId!=='default' && !choices.some(device=>device.deviceId===activeDeviceId) && <option value={activeDeviceId}>Saída selecionada (verificando…)</option>}{choices.map((device,index)=><option key={device.deviceId} value={device.deviceId}>{device.label || 'Saída de áudio '+(index+1)}</option>)}</select></label>
+    <label className="output-select" title="Escolher saída de áudio">{icon}<span className="sr-only">Escolher saída de áudio</span><select value={activeDeviceId || 'default'} disabled={busy} onChange={event=>void change(event.target.value)} aria-describedby="audio-output-status"><option value="default">Padrão do sistema</option>{activeDeviceId && activeDeviceId!=='default' && !choices.some(device=>device.deviceId===activeDeviceId) && <option value={activeDeviceId}>Saída selecionada (verificando…)</option>}{choices.map((device,index)=><option key={device.deviceId} value={device.deviceId}>{device.label || 'Saída de áudio '+(index+1)}</option>)}</select></label>
     <span id="audio-output-status" className="output-status" role="status">{status}</span>
   </div>;
 }

@@ -104,6 +104,44 @@ test('pular avança a fila e parar limpa músicas pendentes', async () => {
   } finally {await app.close();}
 });
 
+test('pausa confirmada é compartilhada e limpar fila não interrompe a faixa', async () => {
+  const app=Fastify(),children=[];
+  app.addHook('onRequest',async request=>{request.user={id:request.headers['x-test-user']||'user-1'};});
+  function spawnWorker(){
+    const child=new EventEmitter();child.pid=2147483647;child.exitCode=null;child.stdout=new PassThrough();child.commands=[];
+    child.stdin=new Writable({write(chunk,_encoding,callback){child.commands.push(JSON.parse(chunk.toString()));callback();}});
+    children.push(child);return child;
+  }
+  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const send=(child,event)=>child.stdout.write(JSON.stringify(event)+'\n');
+  const post=(path,payload={})=>app.inject({method:'POST',url:'/music/room'+path,payload});
+  installMusic(app,{accounts:{voiceExists:async()=>true},roomService:{listParticipants:async()=>[{identity:'user-1:session'},{identity:'user-2:session'}]},apiKey:'test',apiSecret:'secret',serverUrl:'ws://localhost:7880',spawnWorker,terminateWorker:()=>{},pythonPath:process.execPath});
+  try {
+    await post('',{url:'Primeira'});
+    for(let i=0;i<50&&!children.length;i++)await wait(5);
+    const child=children[0];send(child,{event:'ready'});await wait(10);
+    assert.equal((await post('/pause')).statusCode,409);
+    send(child,{event:'playing',title:'Primeira'});await wait(10);
+    await post('',{url:'Segunda'});
+    const pending=await post('/pause');
+    assert.equal(pending.json().paused,false);assert.equal(pending.json().pausePending,true);
+    assert.equal(child.commands.at(-1).command,'pause');
+    send(child,{event:'paused'});await wait(10);
+    assert.equal((await app.inject('/music/room')).json().paused,true);
+    assert.equal((await app.inject({url:'/music/room',headers:{'x-test-user':'user-2'}})).json().paused,true);
+    const commandCount=child.commands.length;
+    const cleared=await post('/clear');
+    assert.equal(cleared.json().current.title,'Primeira');assert.equal(cleared.json().paused,true);assert.deepEqual(cleared.json().queue,[]);
+    assert.equal(child.commands.length,commandCount);
+    assert.equal((await post('/resume')).json().pausePending,true);
+    send(child,{event:'resumed'});await wait(10);
+    assert.equal((await app.inject('/music/room')).json().paused,false);
+    assert.equal((await app.inject({url:'/music/room',headers:{'x-test-user':'user-2'}})).json().paused,false);
+    await post('/skip');send(child,{event:'finished'});await wait(10);
+    assert.equal((await app.inject('/music/room')).json().current,null);
+  } finally {await app.close();}
+});
+
 test('mostra artista e capa da música para todos, sem expor o endereço externo', async () => {
   const app=Fastify(),children=[];
   app.addHook('onRequest',async request=>{request.user={id:'user-1'};});

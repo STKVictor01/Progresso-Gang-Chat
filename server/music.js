@@ -50,7 +50,7 @@ function terminateMusicProcess(child) {
 }
 export function installMusic(app, { log = app.log, accounts, roomService, apiKey, apiSecret, serverUrl, maxConcurrentRooms=Infinity, fetchImpl=globalThis.fetch, spawnWorker=spawn, terminateWorker=terminateMusicProcess, pythonPath=python, idleMs=300000 }) {
   const rooms = new Map();
-  function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,ready:false,startupFailures:0,idleTimer:null,error:'',serial:0}); return rooms.get(room); }
+  function state(room) { if(!rooms.has(room)) rooms.set(room,{queue:[],current:null,process:null,starting:false,ready:false,paused:false,pausePending:false,pauseTimer:null,startupFailures:0,idleTimer:null,error:'',serial:0}); return rooms.get(room); }
   async function authorize(request,reply) {
     const room=request.params.room;
     if (!(await accounts.voiceExists(room))) { reply.code(400).send({error:'Canal inválido.'});return false; }
@@ -60,8 +60,9 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
       return true;
     } catch { reply.code(503).send({error:'Não foi possível verificar quem está na call.'});return false; }
   }
+  function clearPending(player) { clearTimeout(player.pauseTimer); player.pauseTimer=null; player.pausePending=false; }
   function stopProcess(player) {
-    const child=player.process; player.serial++; player.process=null; player.starting=false; player.ready=false;
+    const child=player.process; player.serial++; player.process=null; player.starting=false; player.ready=false; player.paused=false; clearPending(player);
     clearTimeout(player.idleTimer); player.idleTimer=null;
     terminateWorker(child);
   }
@@ -78,7 +79,7 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
     clearTimeout(player.idleTimer); player.idleTimer=null;
     if(player.process) {
       if(!player.ready)return;
-      const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.error='';
+      const item=player.queue.shift(); player.current={...item,title:'Carregando…'}; player.paused=false; clearPending(player); player.error='';
       player.process.stdin.write(JSON.stringify({command:'play',...item})+'\n');
       return;
     }
@@ -96,14 +97,14 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
       player.process=child; player.starting=false; child.stdin.on('error',()=>{});
       child.stdin.write(JSON.stringify({serverUrl,token:jwt})+'\n');
       let buffer='';
-      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='ready'){player.ready=true;player.startupFailures=0;void next(room);}if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);player.current.artist=typeof event.artist==='string'?event.artist.slice(0,120):'';player.current.cover=coverUrl(event.cover)||undefined;const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='error')player.error=String(event.message).slice(0,200);if(event.event==='disconnected')terminateWorker(child);if(event.event==='finished'){player.current=null;void next(room);}}catch{}});
+      child.stdout.on('data',chunk=>{buffer+=chunk.toString();if(buffer.length>8192)buffer=buffer.slice(-8192);const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines)try{const event=JSON.parse(line);if(player.serial!==serial)continue;if(event.event==='ready'){player.ready=true;player.startupFailures=0;void next(room);}if(event.event==='playing'&&player.current){player.current.title=String(event.title).slice(0,200);player.current.artist=typeof event.artist==='string'?event.artist.slice(0,120):'';player.current.cover=coverUrl(event.cover)||undefined;const id=videoId(event.url);if(id)player.current.url='https://www.youtube.com/watch?v='+id;}if(event.event==='paused'&&player.current){player.paused=true;player.error='';clearPending(player);}if(event.event==='resumed'&&player.current){player.paused=false;player.error='';clearPending(player);}if(event.event==='error')player.error=String(event.message).slice(0,200);if(event.event==='disconnected')terminateWorker(child);if(event.event==='finished'){player.current=null;player.paused=false;clearPending(player);void next(room);}}catch{}});
       child.on('error',()=>{if(player.serial===serial)player.error='O serviço de música não iniciou.';});
-      child.on('close',code=>{if(player.serial!==serial)return;if(!player.ready)player.startupFailures++;player.process=null;player.ready=false;clearTimeout(player.idleTimer);player.idleTimer=null;if(player.current){const {title:_title,...item}=player.current;if(!item.retried)player.queue.unshift({...item,retried:true});player.current=null;}if(code && !player.error)player.error='O serviço de música foi interrompido.';if(player.queue.length && child.pid && player.startupFailures<2)void next(room);});
+      child.on('close',code=>{if(player.serial!==serial)return;if(!player.ready)player.startupFailures++;player.process=null;player.ready=false;player.paused=false;clearPending(player);clearTimeout(player.idleTimer);player.idleTimer=null;if(player.current){const {title:_title,...item}=player.current;if(!item.retried)player.queue.unshift({...item,retried:true});player.current=null;}if(code && !player.error)player.error='O serviço de música foi interrompido.';if(player.queue.length && child.pid && player.startupFailures<2)void next(room);});
     } catch { if(player.serial===serial){player.starting=false;player.error='Não foi possível iniciar a música.';} }
   }
   // O endereço externo da capa fica no servidor; o site recebe um endereço próprio.
   const publicCurrent = (room, current) => { if (!current) return null; const {cover, ...rest} = current; return cover ? {...rest, cover:'/api/music/'+encodeURIComponent(room)+'/cover?v='+createHash('sha256').update(cover).digest('hex').slice(0,12)} : rest; };
-  function snapshot(room) {const p=state(room);return {current:publicCurrent(room,p.current),queue:p.queue,error:p.error,available:existsSync(pythonPath)};}
+  function snapshot(room) {const p=state(room);return {current:publicCurrent(room,p.current),queue:p.queue,paused:p.paused,pausePending:p.pausePending,error:p.error,available:existsSync(pythonPath)};}
   // Qualquer pessoa da comunidade vê o que toca em cada call, mesmo fora dela.
   app.get('/music-status',async()=>({rooms:Object.fromEntries([...rooms].filter(([,player])=>player.current&&player.current.title!=='Carregando…').map(([room,player])=>{const {title,artist,cover}=publicCurrent(room,player.current);return [room,{title,artist:artist||'',cover}];}))}));
   const covers = new Map();
@@ -134,7 +135,16 @@ export function installMusic(app, { log = app.log, accounts, roomService, apiKey
   app.post('/music/:room/:action',async(request,reply)=>{
     if(!await authorize(request,reply))return;
     const player=state(request.params.room),action=request.params.action;
-    if(!['skip','stop'].includes(action))return reply.code(400).send({error:'Comando inválido.'});
+    if(!['skip','stop','pause','resume','clear'].includes(action))return reply.code(400).send({error:'Comando inválido.'});
+    if(action==='clear'){player.queue=[];return snapshot(request.params.room);}
+    if(action==='pause'||action==='resume'){
+      if(!player.current||player.current.title==='Carregando…'||!player.process||!player.ready||player.pausePending)return reply.code(409).send({error:'A música ainda não está pronta para esse comando.'});
+      if((action==='pause')===player.paused)return snapshot(request.params.room);
+      player.pausePending=true;player.error='';
+      player.pauseTimer=setTimeout(()=>{player.pausePending=false;player.pauseTimer=null;player.error='O bot não confirmou o comando. Tente novamente.';},8000);player.pauseTimer.unref();
+      player.process.stdin.write(JSON.stringify({command:action})+'\n');
+      return snapshot(request.params.room);
+    }
     if(action==='stop')player.queue=[];
     else if(!player.current)player.queue.shift();
     if(player.current && player.process && player.ready)player.process.stdin.write(JSON.stringify({command:'skip'})+'\n');

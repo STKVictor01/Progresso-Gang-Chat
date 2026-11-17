@@ -45,6 +45,8 @@ jobs:
         working-directory: server
       - run: npm test
         working-directory: server
+      - run: python3 -m unittest music_worker_test
+        working-directory: server
       - run: npm audit --omit=dev --audit-level=moderate
         working-directory: server
       - name: Testar verificação da publicação automática

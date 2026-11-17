@@ -1633,6 +1633,36 @@ input::placeholder { color: var(--muted); }
 .invite-inbox li div { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .account-menu-button { position:relative; }
 .account-unread { position:absolute; top:-4px; right:-5px; min-width:18px; padding:2px 4px; border-radius:12px; color:#fff; background:var(--danger); font-size:10px; line-height:1.2; }
+.music-now-panel-actions .music-icon-control { display:grid; place-items:center; min-width:44px; min-height:44px; padding:10px; }
+.music-icon-control svg { width:20px; height:20px; fill:currentColor; }
+.playlist-heading .music-clear-queue { min-height:40px; padding:7px 10px; font-size:var(--font-xs); }
+
+/* Barra compacta: os seletores ficam ao lado dos respectivos controles. */
+.voice-dock-row { display:flex; align-items:center; gap:12px; padding:8px 14px; }
+.voice-dock-label { flex:0 1 150px; padding:0; }
+.voice-dock-controls { flex:1; min-width:0; }
+.voice-dock .call-controls { justify-content:center; padding:0; }
+.voice-dock-row .leave-button-wrap { flex-shrink:0; margin-left:8px; }
+.progresso-app .voice-dock-row .leave-button { display:grid; place-items:center; min-width:44px; min-height:44px; padding:10px; color:var(--danger); background:var(--danger-soft); border:1px solid var(--danger-line); border-radius:var(--radius-sm); }
+.progresso-app .voice-dock-row .leave-button:hover { background:color-mix(in srgb,var(--danger) 30%,var(--surface)); }
+.headphone-control { position:relative; }
+.headphone-control .output-control { position:relative; }
+.headphone-control .output-select { position:relative; display:grid; place-items:center; width:32px; min-height:44px; padding:0; cursor:pointer; }
+.headphone-control .output-select select { position:absolute; inset:0; width:100%; height:100%; max-width:none; opacity:0; cursor:pointer; }
+.headphone-control .output-select:focus-within { outline:2px solid var(--rose); outline-offset:2px; }
+.headphone-control .output-status:not(:empty) { position:absolute; z-index:5; bottom:calc(100% + 8px); right:0; width:210px; padding:8px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.headphone-control .output-toggle { min-width:32px; min-height:44px; padding:4px; }
+@media(max-width:1100px) { .voice-dock-row { flex-wrap:wrap; } .voice-dock-controls { flex:1 1 auto; } }
+@media(max-width:767px) {
+  .voice-dock-row { gap:8px; padding:8px 10px max(8px,env(safe-area-inset-bottom)); }
+  .voice-dock-label { flex:1 1 auto; }
+  .voice-dock-controls { flex:1 1 100%; order:3; }
+  .voice-dock .call-controls { justify-content:flex-start; padding:0; }
+  .call-controls:not(.mobile-controls-expanded) .headphone-control .output-control,
+  .call-controls:not(.mobile-controls-expanded) .headphone-control .output-toggle,
+  .call-controls:not(.mobile-controls-expanded) .control-group[aria-label="Comunicação"] .lk-button-menu { display:flex; }
+  .voice-dock .call-more-toggle { min-width:94px; }
+}
 /* Administração acompanha os painéis do chat e mantém os controles acessíveis no celular. */
 .community-admin { width:min(800px,calc(100vw - 32px)); padding:24px; }
 .community-admin > header { align-items:center; }

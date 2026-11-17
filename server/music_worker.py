@@ -55,7 +55,7 @@ def resolve(item):
     raise last or RuntimeError('Nenhum resultado')
 
 
-async def play(item, source):
+async def play(item, source, running, capture_lock):
     process = None
     try:
         info = await asyncio.to_thread(resolve, item)
@@ -66,13 +66,19 @@ async def play(item, source):
         cover = f"https://i.ytimg.com/vi/{info['id']}/hqdefault.jpg" if youtube else str(info.get('thumbnail') or '')
         event('playing', title=str(info.get('title') or 'Música')[:200], artist=artist, cover=cover, url='https://www.youtube.com/watch?v=' + info['id'] if youtube else '')
         while True:
+            await running.wait()
             try:
                 data = await process.stdout.readexactly(3840)
             except asyncio.IncompleteReadError as end:
                 if not end.partial:
                     break
                 data = end.partial + bytes(3840 - len(end.partial))
-            await source.capture_frame(rtc.AudioFrame(data, 48000, 2, 960))
+            while True:
+                await running.wait()
+                async with capture_lock:
+                    if running.is_set():
+                        await source.capture_frame(rtc.AudioFrame(data, 48000, 2, 960))
+                        break
         await process.wait()
         if process.returncode:
             raise RuntimeError('Erro ao reproduzir áudio')
@@ -102,6 +108,9 @@ async def main():
     room = rtc.Room()
     room.on('disconnected', lambda *_: event('disconnected'))
     task = None
+    running = asyncio.Event()
+    running.set()
+    capture_lock = asyncio.Lock()
     try:
         await room.connect(settings['serverUrl'], settings['token'])
         source = rtc.AudioSource(48000, 2)
@@ -111,9 +120,20 @@ async def main():
         while line := await asyncio.to_thread(sys.stdin.readline):
             command = json.loads(line)
             if command.get('command') == 'play' and (not task or task.done()):
-                task = asyncio.create_task(play(command, source))
+                running.set()
+                task = asyncio.create_task(play(command, source, running, capture_lock))
                 task.add_done_callback(lambda _: event('finished'))
+            elif command.get('command') == 'pause' and task and not task.done():
+                running.clear()
+                async with capture_lock:
+                    await source.wait_for_playout()
+                if not task.done():
+                    event('paused')
+            elif command.get('command') == 'resume' and task and not task.done():
+                running.set()
+                event('resumed')
             elif command.get('command') == 'skip' and task and not task.done():
+                running.set()
                 task.cancel()
                 try:
                     await task
@@ -129,9 +149,10 @@ async def main():
         await room.disconnect()
 
 
-try:
-    asyncio.run(main())
-except Exception as failure:
-    log(f'conexão: {type(failure).__name__}: {failure}')
-    event('error', message='O serviço de música não conseguiu se conectar à call.')
-    sys.exit(1)
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except Exception as failure:
+        log(f'conexão: {type(failure).__name__}: {failure}')
+        event('error', message='O serviço de música não conseguiu se conectar à call.')
+        sys.exit(1)

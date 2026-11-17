@@ -117,8 +117,11 @@ test('convite confirmado cria membro e só pode ser usado uma vez',async()=>{
     const data={token:invite,username:'Pessoa',email:'pessoa@example.invalid',password,phase:'start'};
     assert.equal((await request(app,'/auth/register',data)).statusCode,200);
     assert.equal((await request(app,'/auth/register',{...data,phase:'finish'})).statusCode,401);
-    provider.confirm(data.email);
+    provider.confirm(data.email);provider.users.get(data.email).created_at='2025-03-04T05:06:07.000Z';
     const member=await request(app,'/auth/register',{...data,phase:'finish'});assert.equal(member.statusCode,201);assert.equal(member.json().user.role,'member');
+    // "Membro desde" usa a criação da conta no Supabase Auth.
+    const presence=(await app.inject({url:'/presence',headers:{cookie:cookies(member)}})).json();
+    assert.equal(presence.profiles.find(item=>item.id===member.json().user.id).memberSince,Date.parse('2025-03-04T05:06:07.000Z'));
     assert.equal((await request(app,'/admin/invites',{}, {cookie:cookies(member),'x-csrf-token':member.json().csrf})).statusCode,403);
     assert.equal((await request(app,'/auth/register',{...data,username:'Outra',phase:'finish'})).statusCode,403);
   }finally{if(app)await app.close();rmSync(dir,{recursive:true,force:true});}

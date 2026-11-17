@@ -614,3 +614,59 @@ test('administrador reordena canais e seções; membros não podem', async () =>
     assert.equal((await app.inject({method:'POST',url:'/admin/channels/order',headers:{cookie:'pg_session='+member.cookies[0].value,'x-csrf-token':member.json().csrf},payload:{order}})).statusCode,403);
   } finally { await app.close(); }
 });
+
+test('banner e cores do perfil são validados, preservados e públicos só para leitura', async () => {
+  const {default:sharp}=await import('sharp');
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const profile=async()=>(await app.inject('/presence')).json().profiles[0];
+    const patch=payload=>app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:null,...payload}});
+    assert.equal((await app.inject('/presence')).json().appearance,true);
+    const initial=await profile();
+    assert.equal(initial.bannerUrl,null);assert.equal(initial.appearanceMode,'auto');assert.deepEqual(initial.bannerCrop,{x:50,y:50,zoom:100});assert.deepEqual(initial.badges,[]);assert.ok(initial.memberSince>0);
+    const id=randomUUID();
+    const image=await sharp({create:{width:68,height:24,channels:3,background:'#3366aa'}}).png().toBuffer();
+    assert.equal((await app.inject({method:'POST',url:'/uploads',headers:{'content-type':'application/octet-stream','x-upload-id':id},payload:image})).statusCode,201);
+    assert.equal((await patch({bannerId:id,bannerCrop:{x:30,y:70,zoom:150},autoPalette:['#1A2B3C','#102030','#AABBCC']})).statusCode,200);
+    let saved=await profile();
+    assert.equal(saved.bannerUrl,'/api/media/'+id);assert.deepEqual(saved.bannerCrop,{x:30,y:70,zoom:150});assert.deepEqual(saved.autoPalette,['#1a2b3c','#102030','#aabbcc']);
+    assert.equal((await app.inject('/media/'+id)).statusCode,200);
+    // O banner não pode virar anexo de mensagem.
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),attachmentIds:[id]}})).statusCode,409);
+    // Cores manuais ficam guardadas ao voltar para o automático e ao trocar o banner.
+    assert.equal((await patch({appearanceMode:'custom',customColors:['#222222','#333333','#ff8800']})).statusCode,200);
+    assert.equal((await patch({appearanceMode:'auto'})).statusCode,200);
+    assert.equal((await patch({bannerId:null,autoPalette:null})).statusCode,200);
+    saved=await profile();
+    assert.equal(saved.appearanceMode,'auto');assert.deepEqual(saved.customColors,['#222222','#333333','#ff8800']);assert.equal(saved.bannerUrl,null);assert.equal(saved.autoPalette,null);
+    // Clientes antigos não apagam a aparência.
+    assert.equal((await patch({appearanceMode:'custom',bannerId:id})).statusCode,200);
+    assert.equal((await patch({description:'cliente antigo'})).statusCode,200);
+    saved=await profile();assert.equal(saved.appearanceMode,'custom');assert.equal(saved.bannerUrl,'/api/media/'+id);
+    for (const payload of [{customColors:['red','#000000','#ffffff']},{customColors:['#000000','#ffffff']},{customColors:['#000000;}body{','#000000','#000000']},{autoPalette:'#000000 #000000 #000000'},{appearanceMode:'dark'},{bannerCrop:{x:101,y:0,zoom:100}},{bannerCrop:{x:1.5,y:0,zoom:100}},{bannerCrop:{x:0,y:0,zoom:50}},{bannerId:'nao-e-uuid'},{bannerId:randomUUID()}])
+      assert.equal((await patch(payload)).statusCode,400,JSON.stringify(payload));
+  } finally { await app.close(); }
+});
+
+test('somente administradores concedem a insígnia de Membro Fundador', async () => {
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    const owner=(await app.inject('/presence')).json().profiles[0];
+    assert.equal((await app.inject({method:'PUT',url:'/admin/users/'+owner.id+'/badges/founder'})).statusCode,200);
+    assert.equal((await app.inject({method:'PUT',url:'/admin/users/'+owner.id+'/badges/founder'})).statusCode,200);
+    assert.deepEqual((await app.inject('/presence')).json().profiles[0].badges,['founder']);
+    assert.equal((await app.inject({method:'PUT',url:'/admin/users/'+owner.id+'/badges/rei'})).statusCode,404);
+    assert.equal((await app.inject({method:'PUT',url:'/admin/users/'+randomUUID()+'/badges/founder'})).statusCode,404);
+    // Um membro não pode se conceder a insígnia nem mexer pelo perfil.
+    const invite=(await app.inject({method:'POST',url:'/admin/invites'})).json().token;
+    const register=await app.inject({method:'POST',url:'/auth/register',headers:{cookie:''},payload:{token:invite,username:'Membro',password:testPassword}});
+    assert.equal(register.statusCode,201);
+    const memberCookie=register.cookies.find(item=>item.name==='pg_session'),memberCsrf=register.json().csrf,member=register.json().user;
+    const asMember=(method,url,payload)=>app.inject({method,url,payload,headers:{cookie:memberCookie.name+'='+memberCookie.value,'x-csrf-token':memberCsrf}});
+    assert.equal((await asMember('PUT','/admin/users/'+member.id+'/badges/founder')).statusCode,403);
+    assert.equal((await asMember('PATCH','/profile',{description:'',avatarId:null,badges:['founder']})).statusCode,200);
+    assert.deepEqual((await app.inject('/presence')).json().profiles.find(item=>item.id===member.id).badges,[]);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/users/'+owner.id+'/badges/founder'})).statusCode,200);
+    assert.deepEqual((await app.inject('/presence')).json().profiles[0].badges,[]);
+  } finally { await app.close(); }
+});

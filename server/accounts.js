@@ -33,8 +33,12 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
       await db.exec('CREATE TABLE IF NOT EXISTS auth_links (user_id TEXT PRIMARY KEY REFERENCES users(id), auth_user_id TEXT NOT NULL UNIQUE, email TEXT NOT NULL, activated_at INTEGER)');
       const columns=await db.prepare('PRAGMA table_info(auth_links)').all();
       if(!columns.some(column=>column.name==='auth_user_id'))await db.exec('BEGIN; ALTER TABLE auth_links ADD COLUMN auth_user_id TEXT; UPDATE auth_links SET auth_user_id=user_id; CREATE UNIQUE INDEX auth_links_remote_id ON auth_links(auth_user_id); COMMIT');
+      if(!columns.some(column=>column.name==='auth_created_at'))await db.exec('ALTER TABLE auth_links ADD COLUMN auth_created_at INTEGER');
     } else await db.prepare('SELECT user_id,auth_user_id FROM auth_links LIMIT 1').all();
   }
+  // Data de criação da conta no Supabase Auth, para mostrar "Membro desde". No PostgreSQL vem da migração.
+  const authCreatedAt=Boolean(authProvider) && (db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='auth_links' AND column_name='auth_created_at'").get()));
+  const rememberCreatedAt=async(userId,remote)=>{const created=Date.parse(remote?.created_at);if(authCreatedAt&&Number.isSafeInteger(created)&&created>0)await db.prepare('UPDATE auth_links SET auth_created_at=? WHERE user_id=? AND auth_created_at IS NULL').run(created,userId);};
   if (ownerSetupToken && !(await db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get()).password_hash) (await db.prepare('INSERT INTO owner_setup VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at').run(digest(ownerSetupToken),ownerSetupExpiresAt));
   if (startupCleanup) (await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now()));
   await app.register(cookie);
@@ -105,6 +109,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
       const user=link && await db.prepare('SELECT * FROM users WHERE id=? AND active=1').get(link.user_id);
       if(!user||!link||link.email.toLowerCase()!==signed.user.email?.toLowerCase()){try{await authProvider.signOut(signed.accessToken);}catch{}return fail(reply,403,'Esta conta não está vinculada à comunidade.');}
       if(!link.activated_at)await db.prepare('UPDATE auth_links SET activated_at=? WHERE user_id=?').run(Date.now(),user.id);
+      await rememberCreatedAt(user.id,signed.user);
       recordEvent('login',{actor:user.username});return session(reply,user,signed);
     }
     if((await loginAccountLimit(request)).isExceeded)return fail(reply,429,'Muitas tentativas. Tente novamente mais tarde.');
@@ -153,7 +158,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
         });
         if(!registered)return fail(reply,409,'Este convite já foi usado.');
       }catch(error){if(error.code?.includes('CONSTRAINT')||error.code==='23505'||[19,1555,2067].includes(error.errcode))return fail(reply,409,'Esta conta ou nome já está em uso.');throw error;}
-      recordEvent('user-register',{actor:username.trim()});return reply.code(201).send(await session(reply,await db.prepare('SELECT * FROM users WHERE id=?').get(id),signed));
+      await rememberCreatedAt(id,signed.user);recordEvent('user-register',{actor:username.trim()});return reply.code(201).send(await session(reply,await db.prepare('SELECT * FROM users WHERE id=?').get(id),signed));
     }
     const { token, username, password } = request.body ?? {};
     if (!validName(username) || !validPassword(password)) return fail(reply,400,'Use um nome de 2 a 32 caracteres e senha de 12 a 128 caracteres.');
@@ -297,6 +302,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     (await db.prepare('UPDATE site_settings SET name=?,tagline=? WHERE id=1').run(name.trim(),tagline.trim()));recordEvent('site-update',{actor:request.user.username});return {ok:true};
   });
   return {
+    authCreatedAt,
     voiceExists: async id => Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id))),
     conversationExists: async id => typeof id==='string' && (id.startsWith('voice:') ? Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id.slice(6)))) : Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='text'").get(id)))),
   };

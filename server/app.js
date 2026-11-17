@@ -25,6 +25,20 @@ export function readableNameColor(value) {
   const [r,g,b] = [1,3,5].map(index => parseInt(value.slice(index,index+2),16)/255).map(c => c <= 0.03928 ? c/12.92 : ((c+0.055)/1.055)**2.4);
   return 0.2126*r + 0.7152*g + 0.0722*b >= 0.13;
 }
+// Aparência do perfil: três cores #rrggbb (principal, secundária, destaque) e o recorte do banner.
+const HEX_COLOR = /^#[0-9a-f]{6}$/;
+export function parseColorTriple(value) {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(color => typeof color === 'string' && HEX_COLOR.test(color.toLowerCase()))) return null;
+  return value.map(color => color.toLowerCase()).join(' ');
+}
+const storedTriple = value => typeof value === 'string' && /^#[0-9a-f]{6} #[0-9a-f]{6} #[0-9a-f]{6}$/.test(value) ? value.split(' ') : null;
+export function parseBannerCrop(value) {
+  if (!value || typeof value !== 'object') return null;
+  const {x,y,zoom} = value;
+  if (![x,y,zoom].every(Number.isInteger) || x < 0 || x > 100 || y < 0 || y > 100 || zoom < 100 || zoom > 300) return null;
+  return x+' '+y+' '+zoom;
+}
+const storedCrop = value => { const [x,y,zoom] = typeof value === 'string' ? value.split(' ').map(Number) : []; return parseBannerCrop({x,y,zoom}) ? {x,y,zoom} : {x:50,y:50,zoom:100}; };
 function imageSignature(buffer) {
   if (buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'png';
   if (buffer[0]===255 && buffer[1]===216 && buffer[2]===255) return 'jpeg';
@@ -66,7 +80,8 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       PRIMARY KEY(message_id,attachment_id)
     );
     CREATE TABLE IF NOT EXISTS profiles (user_id TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '', avatar_id TEXT REFERENCES attachments(id));
-    CREATE TABLE IF NOT EXISTS soundboard (id TEXT PRIMARY KEY, channel TEXT NOT NULL, name TEXT NOT NULL, owner_id TEXT NOT NULL, data BLOB NOT NULL, created_at INTEGER NOT NULL);`));
+    CREATE TABLE IF NOT EXISTS soundboard (id TEXT PRIMARY KEY, channel TEXT NOT NULL, name TEXT NOT NULL, owner_id TEXT NOT NULL, data BLOB NOT NULL, created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS user_badges (user_id TEXT NOT NULL REFERENCES users(id), badge TEXT NOT NULL CHECK(badge IN ('founder')), granted_at INTEGER NOT NULL, PRIMARY KEY(user_id,badge));`));
   }
   const mediaFields = 'a.id,a.mime,a.width,a.height,a.size,a.animated,a.filename';
   const messageMedia = db.prepare(`SELECT ${mediaFields} FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=? ORDER BY ma.position`);
@@ -83,8 +98,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const byId=new Map(replies.map(reply=>[reply.id,reply]));
     return messages.map(message=>{const reply=byId.get(message.reply_to_id);return {...message,reply:reply?(reply.deleted_at?{id:reply.id,deleted:true}:{id:reply.id,name:reply.name,text:reply.text,user_id:reply.user_id,deleted:false}):null,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]};});
   }
-  const cleanAbandoned = async () => (await db.prepare('DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)').run(Date.now()-86400000));
-  if (startupCleanup) await cleanAbandoned();
+  const cleanAbandoned = async () => (await db.prepare(`DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)${appearance ? ' AND id NOT IN (SELECT banner_id FROM profiles WHERE banner_id IS NOT NULL)' : ''}`).run(Date.now()-86400000));
   const app = Fastify({ logger, bodyLimit: 16384, trustProxy });
   const activity=createActivityLog(activityLogPath);
   app.addHook('onReady',async()=>activity.record('server-start'));
@@ -109,10 +123,15 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   const profileColumns=(await db.prepare('PRAGMA table_info(profiles)').all()).map(c=>c.name);
   if (!profileColumns.includes('name_color')) (await db.exec('ALTER TABLE profiles ADD COLUMN name_color TEXT'));
   if (!profileColumns.includes('status_text')) (await db.exec("ALTER TABLE profiles ADD COLUMN status_text TEXT NOT NULL DEFAULT ''"));
+  if (!profileColumns.includes('banner_id')) (await db.exec(`ALTER TABLE profiles ADD COLUMN banner_id TEXT REFERENCES attachments(id); ALTER TABLE profiles ADD COLUMN banner_crop TEXT; ALTER TABLE profiles ADD COLUMN appearance_mode TEXT NOT NULL DEFAULT 'auto' CHECK(appearance_mode IN ('auto','custom')); ALTER TABLE profiles ADD COLUMN custom_colors TEXT; ALTER TABLE profiles ADD COLUMN auto_palette TEXT;`));
   }
   // No PostgreSQL as colunas vêm da migração; até ela ser aplicada, a cor do nick e o status ficam desativados.
   const profileColumn = async name => db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='profiles' AND column_name=?").get(name));
   const nameColors = await profileColumn('name_color'), statuses = await profileColumn('status_text');
+  // Banner e cores do perfil, e as insígnias (como Membro Fundador), também dependem da migração.
+  const appearance = await profileColumn('banner_id') && await profileColumn('auto_palette');
+  const badges = db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='user_badges'").get());
+  if (startupCleanup) await cleanAbandoned();
   // The launcher compares this version to restart a backend left running from before an update.
   app.get('/health', async () => ({ status:'online', application:'progresso-gang-chat', version:HEALTH_VERSION, features:['accounts'], database:db.kind, pid:process.pid }));
   app.get('/ready', async (_request,reply) => {try {await db.prepare('SELECT 1 AS ok').get();return {ready:true};} catch {return reply.code(503).send({ready:false});}});
@@ -245,7 +264,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       if(largeDownloads>=2)return reply.code(429).send({error:'Muitos downloads em andamento. Tente novamente em instantes.'});
       largeDownloads++;reply.raw.once('close',()=>{largeDownloads--;});
     }
-    const media=(await db.prepare('SELECT a.mime,a.data,a.animated,a.filename FROM attachments a WHERE a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id))').get(id));
+    const media=(await db.prepare('SELECT a.mime,a.data,a.animated,a.filename FROM attachments a WHERE a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id'+(appearance?' OR p.banner_id=a.id':'')+'))').get(id));
     if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
     let body=Buffer.from(media.data);
     let mime=media.mime;
@@ -305,24 +324,55 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const now = Date.now();
     online.set(request.user.id, now);
     for (const [id, seen] of online) if (now-seen > 45000) online.delete(id);
-    const rows = (await db.prepare(`SELECT u.id,u.username,u.active,p.description,p.avatar_id${nameColors?',p.name_color':''}${statuses?',p.status_text':''} FROM users u LEFT JOIN profiles p ON p.user_id=u.id`).all());
-    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null, status:user.status_text || '' });
-    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses };
+    const rows = (await db.prepare(`SELECT u.id,u.username,u.active,u.created_at,p.description,p.avatar_id${nameColors?',p.name_color':''}${statuses?',p.status_text':''}${appearance?',p.banner_id,p.banner_crop,p.appearance_mode,p.custom_colors,p.auto_palette':''}${accounts.authCreatedAt?',l.auth_created_at':''} FROM users u LEFT JOIN profiles p ON p.user_id=u.id${accounts.authCreatedAt?' LEFT JOIN auth_links l ON l.user_id=u.id':''}`).all());
+    const granted = new Map();
+    if (badges) for (const row of await db.prepare('SELECT user_id,badge FROM user_badges ORDER BY granted_at').all()) granted.set(row.user_id,[...(granted.get(row.user_id) ?? []),row.badge]);
+    const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null, status:user.status_text || '',
+      bannerUrl:user.banner_id ? '/api/media/'+user.banner_id : null, bannerCrop:storedCrop(user.banner_crop), appearanceMode:user.appearance_mode==='custom' ? 'custom' : 'auto', customColors:storedTriple(user.custom_colors), autoPalette:storedTriple(user.auto_palette),
+      badges:granted.get(user.id) ?? [], memberSince:Number(user.auth_created_at || user.created_at) || null });
+    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses, appearance };
   });
   app.patch('/profile', async (request,reply) => {
-    const {description,avatarId,nameColor,status} = request.body ?? {};
+    const {description,avatarId,nameColor,status,bannerId,bannerCrop,appearanceMode,customColors,autoPalette} = request.body ?? {};
     if (typeof description !== 'string' || description.length > 200 || !(avatarId === null || typeof avatarId === 'string' && UUID.test(avatarId))) return reply.code(400).send({error:'Descrição ou imagem inválida.'});
     if (!(nameColor === undefined || nameColor === null || readableNameColor(nameColor))) return reply.code(400).send({error:'Escolha uma cor no formato #RRGGBB e clara o bastante para ler no fundo escuro.'});
     if (nameColor && !nameColors) return reply.code(503).send({error:'A cor do nick ainda não foi ativada no servidor.'});
     if (!(status === undefined || typeof status === 'string' && status.trim().length <= 60 && !/[ -]/.test(status))) return reply.code(400).send({error:'O status pode ter até 60 caracteres, em uma linha.'});
     if (status?.trim() && !statuses) return reply.code(503).send({error:'O status personalizado ainda não foi ativado no servidor.'});
+    const appearanceSent = [bannerId,bannerCrop,appearanceMode,customColors,autoPalette].some(value => value !== undefined);
+    if (appearanceSent && !appearance) return reply.code(503).send({error:'O banner e as cores do perfil ainda não foram ativados no servidor.'});
+    if (!(bannerId === undefined || bannerId === null || typeof bannerId === 'string' && UUID.test(bannerId))) return reply.code(400).send({error:'Banner inválido.'});
+    if (!(bannerCrop === undefined || parseBannerCrop(bannerCrop))) return reply.code(400).send({error:'Posição do banner inválida.'});
+    if (!(appearanceMode === undefined || ['auto','custom'].includes(appearanceMode))) return reply.code(400).send({error:'Modo de cores inválido.'});
+    if (!(customColors === undefined || customColors === null || parseColorTriple(customColors))) return reply.code(400).send({error:'Use cores no formato #RRGGBB.'});
+    if (!(autoPalette === undefined || autoPalette === null || parseColorTriple(autoPalette))) return reply.code(400).send({error:'Paleta do banner inválida.'});
+    if (bannerId && !(await db.prepare("SELECT id FROM attachments WHERE id=? AND owner_id=? AND size<=? AND mime LIKE 'image/%' AND id NOT IN (SELECT attachment_id FROM message_attachments)").get(bannerId,request.user.id,MAX_UPLOAD_BYTES))) return reply.code(400).send({error:'Envie o banner novamente. Ele pode ter até 8 MB.'});
     if (avatarId && !(await db.prepare("SELECT id FROM attachments WHERE id=? AND owner_id=? AND size<=? AND mime LIKE 'image/%' AND id NOT IN (SELECT attachment_id FROM message_attachments)").get(avatarId,request.user.id,MAX_UPLOAD_BYTES))) return reply.code(400).send({error:'Envie sua imagem novamente. Fotos de perfil têm limite de 8 MB.'});
     // Clientes antigos não enviam a cor nem o status; nesse caso eles são mantidos.
     const fields = { description:description.trim(), avatar_id:avatarId };
     if (nameColors && nameColor !== undefined) fields.name_color = nameColor ? nameColor.toLowerCase() : null;
     if (statuses && status !== undefined) fields.status_text = status.trim();
+    if (bannerId !== undefined) fields.banner_id = bannerId;
+    if (bannerCrop !== undefined) fields.banner_crop = parseBannerCrop(bannerCrop);
+    if (appearanceMode !== undefined) fields.appearance_mode = appearanceMode;
+    if (customColors !== undefined) fields.custom_colors = customColors && parseColorTriple(customColors);
+    if (autoPalette !== undefined) fields.auto_palette = autoPalette && parseColorTriple(autoPalette);
     const columns = Object.keys(fields);
     (await db.prepare(`INSERT INTO profiles(user_id,${columns.join(',')}) VALUES(?${',?'.repeat(columns.length)}) ON CONFLICT(user_id) DO UPDATE SET ${columns.map(column=>column+'=excluded.'+column).join(',')}`).run(request.user.id,...Object.values(fields)));
+    return {ok:true};
+  });
+  app.put('/admin/users/:id/badges/:badge', async (request,reply) => {
+    if (!badges) return reply.code(503).send({error:'As insígnias ainda não foram ativadas no servidor.'});
+    if (request.params.badge !== 'founder' || !(await db.prepare('SELECT id FROM users WHERE id=?').get(request.params.id))) return reply.code(404).send({error:'Conta ou insígnia não encontrada.'});
+    await db.prepare('INSERT INTO user_badges(user_id,badge,granted_at) VALUES(?,?,?) ON CONFLICT(user_id,badge) DO NOTHING').run(request.params.id,'founder',Date.now());
+    activity.record('user-update',{actor:request.user.username});
+    return {ok:true};
+  });
+  app.delete('/admin/users/:id/badges/:badge', async (request,reply) => {
+    if (!badges) return reply.code(503).send({error:'As insígnias ainda não foram ativadas no servidor.'});
+    if (request.params.badge !== 'founder') return reply.code(404).send({error:'Insígnia não encontrada.'});
+    await db.prepare('DELETE FROM user_badges WHERE user_id=? AND badge=?').run(request.params.id,'founder');
+    activity.record('user-update',{actor:request.user.username});
     return {ok:true};
   });
   app.get('/messages', async (request,reply) => {
@@ -361,7 +411,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     for(const id of attachmentIds){
       const attachment=await db.prepare('SELECT id,size,mime FROM attachments WHERE id=? AND owner_id=?').get(id,request.user.id);
       if(!attachment)return reply.code(400).send({error:'Um dos anexos não foi enviado por você. Tente novamente.'});
-      if((await db.prepare('SELECT user_id FROM profiles WHERE avatar_id=?').get(id)))return reply.code(409).send({error:'Escolha outra imagem para a mensagem.'});
+      if((await db.prepare('SELECT user_id FROM profiles WHERE avatar_id=?'+(appearance?' OR banner_id=?':'')).get(...(appearance?[id,id]:[id]))))return reply.code(409).send({error:'Escolha outra imagem para a mensagem.'});
       if((await db.prepare('SELECT message_id FROM message_attachments WHERE attachment_id=?').get(id)))return reply.code(409).send({error:'Um dos anexos já foi publicado. Selecione o arquivo novamente.'});
     }
     const timestamp=Date.now();let messageId;

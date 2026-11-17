@@ -4,13 +4,18 @@ import { api, jsonApi } from './api';
 import { AdminPanel, PasswordPanel, useAccount } from './accounts';
 import { normalizeHexColor, readableNameColor } from './chat-format';
 import { convertAudio } from './audio-file';
+import { bannerPalette, ProfileCard, ProfileMiniCard } from './profile-card';
+import type { ProfileData } from './profile-card';
+import { AppearanceSettings, prepareBanner } from './profile-appearance-editor';
+import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
+import type { BannerCrop, ProfilePalette } from './profile-appearance';
 
 const COLOR_SUGGESTIONS = ['#ff8b7f','#e6c48b','#f5d76e','#8fd694','#6ed3cf','#7fb2ff','#b79cff','#ff9ad5'];
 
-type OnlineUser = {id:string;name:string;description:string;avatarUrl:string|null;nameColor?:string|null;status?:string};
+type OnlineUser = ProfileData;
 
 export type NowPlaying = {title:string;artist:string;cover?:string};
-type PresenceState = { music:Record<string,NowPlaying>; people:OnlineUser[]; profiles:OnlineUser[]; voiceChannels:Record<string,string[]> | null; refresh:()=>Promise<void>; showProfile:(id:string)=>void; nameColors:boolean; statuses:boolean };
+type PresenceState = { music:Record<string,NowPlaying>; people:OnlineUser[]; profiles:OnlineUser[]; voiceChannels:Record<string,string[]> | null; refresh:()=>Promise<void>; showProfile:(id:string)=>void; nameColors:boolean; statuses:boolean; appearance:boolean };
 const PresenceContext = createContext<PresenceState | null>(null);
 // eslint-disable-next-line react-refresh/only-export-components
 export function usePresence() {
@@ -37,12 +42,13 @@ export function PresenceProvider({children}:{children:ReactNode}) {
   const [profiles,setProfiles] = useState<OnlineUser[]>([]);
   const [nameColors,setNameColors] = useState(false);
   const [statuses,setStatuses] = useState(false);
+  const [appearance,setAppearance] = useState(false);
   const [voiceChannels,setVoiceChannels] = useState<Record<string,string[]> | null>(null);
   const [music,setMusic] = useState<Record<string,NowPlaying>>({});
   const [selected,setSelected] = useState<string | null>(null);
   async function refresh() {
     const data = await jsonApi('/api/presence');
-    setPeople(data.users); setProfiles(data.profiles ?? data.users); setNameColors(data.nameColors === true); setStatuses(data.statuses === true);
+    setPeople(data.users); setProfiles(data.profiles ?? data.users); setNameColors(data.nameColors === true); setStatuses(data.statuses === true); setAppearance(data.appearance === true);
   }
   useEffect(() => {
     const initial = setTimeout(() => void refresh().catch(() => {}), 0);
@@ -63,7 +69,7 @@ export function PresenceProvider({children}:{children:ReactNode}) {
     return () => { active = false; clearInterval(timer); };
   }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-label={'Perfil de '+profile.name}><header><div><h2 style={profile.nameColor ? {color:profile.nameColor} : undefined}>{profile.name}</h2>{profile.status && <p className="profile-status">{profile.status}</p>}</div><button className="button subtle" onClick={()=>setSelected(null)}>Fechar</button></header>{profile.avatarUrl ? <img src={profile.avatarUrl} alt={'Foto de '+profile.name} className="profile-large-avatar"/> : <span className="member-avatar profile-large-avatar">{profile.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}{profile.id === user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : <p>{profile.description || 'Sem descrição ainda.'}</p>}</dialog>}</PresenceContext.Provider>;
+  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses,appearance}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-labelledby="profile-dialog-name"><ProfileCard profile={profile} headingId="profile-dialog-name" actions={<button className="button subtle profile-close" onClick={()=>setSelected(null)} aria-label="Fechar perfil">×</button>}>{profile.id === user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : undefined}</ProfileCard></dialog>}</PresenceContext.Provider>;
 }
 function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUrl:string|null};className?:string}) {
   return person.avatarUrl ? <img className={className} src={person.avatarUrl} alt=""/> : <span className={className}>{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>;
@@ -93,7 +99,7 @@ function EntrySoundSettings() {
 // Um único painel reúne foto, apelido, descrição e as opções da conta.
 export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'card'|'avatar'}) {
   const {user,renameSelf,authMode,logout} = useAccount();
-  const {profiles,refresh,nameColors,statuses} = usePresence();
+  const {profiles,refresh,nameColors,statuses,appearance} = usePresence();
   const [statusText,setStatusText] = useState('');
   const [editing,setEditing] = useState(false);
   const [color,setColor] = useState('');
@@ -106,11 +112,30 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   const [error,setError] = useState('');
   const [message,setMessage] = useState('');
   const [saving,setSaving] = useState(false);
+  // Banner e cores do perfil.
+  const [bannerFile,setBannerFile] = useState<File|null>(null);
+  const [bannerPreview,setBannerPreview] = useState<string|null>(null);
+  const [removeBanner,setRemoveBanner] = useState(false);
+  const [crop,setCrop] = useState<BannerCrop>(DEFAULT_CROP);
+  const [mode,setMode] = useState<'auto'|'custom'>('auto');
+  const [custom,setCustom] = useState<ProfilePalette|null>(null);
+  const [newPalette,setNewPalette] = useState<{url:string;palette?:ProfilePalette|null}|null>(null);
   const own = profiles.find(person => person.id === user.id);
   const me = {name:user.name,avatarUrl:own?.avatarUrl ?? null};
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
-  function open() { setName(user.name); setDescription(own?.description || ''); setColor(own?.nameColor || ''); setStatusText(own?.status || ''); setFile(null); setPreview(null); setRemoveAvatar(false); setError(''); setMessage(''); setEditing(true); }
-  function closeEditor() { setEditing(false); setFile(null); setPreview(null); setRemoveAvatar(false); setError(''); setMessage(''); }
+  useEffect(() => () => { if (bannerPreview) URL.revokeObjectURL(bannerPreview); }, [bannerPreview]);
+  function resetAppearance() { setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setCrop(validCrop(own?.bannerCrop)); setMode(own?.appearanceMode==='custom' ? 'custom' : 'auto'); setCustom(tripleToPalette(own?.customColors)); setNewPalette(null); }
+  function chooseBanner(next:File|null) {
+    setError('');
+    if (next && !/^image\/(png|jpeg|webp|gif)$/.test(next.type)) { setError('Escolha um banner em PNG, JPG, WebP ou GIF.'); return; }
+    if (next && next.size > (next.type==='image/gif' ? 8 : 25)*1024*1024) { setError(next.type==='image/gif' ? 'O banner em GIF deve ter até 8 MB.' : 'Escolha uma imagem de até 25 MB.'); return; }
+    const url = next ? URL.createObjectURL(next) : null;
+    setBannerFile(next); setBannerPreview(url); setRemoveBanner(false); setCrop(next ? DEFAULT_CROP : validCrop(own?.bannerCrop));
+    setNewPalette(url ? {url} : null);
+    if (url) bannerPalette(url).then(palette => setNewPalette(current => current?.url===url ? {url,palette} : current)).catch(() => setNewPalette(current => current?.url===url ? {url,palette:null} : current));
+  }
+  function open() { setName(user.name); setDescription(own?.description || ''); setColor(own?.nameColor || ''); setStatusText(own?.status || ''); setFile(null); setPreview(null); setRemoveAvatar(false); resetAppearance(); setError(''); setMessage(''); setEditing(true); }
+  function closeEditor() { setEditing(false); setFile(null); setPreview(null); setBannerFile(null); setBannerPreview(null); setRemoveAvatar(false); setError(''); setMessage(''); }
   function choose(next:File|null) {
     setError('');
     if (next && next.size > 8*1024*1024) { setError('A imagem deve ter até 8 MB.'); return; }
@@ -129,14 +154,31 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
         const result = await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':avatarId},body:file});
         if (!result.ok) { const data=await result.json().catch(()=>({})); throw Error(data.error || 'Não foi possível enviar a imagem.'); }
       }
-      await jsonApi('/api/profile','PATCH',{description,avatarId,...(nameColors?{nameColor:chosenColor}:{}),...(statuses?{status:statusText}:{})});
-      await refresh(); setFile(null); setPreview(null); setRemoveAvatar(false); setMessage('Perfil salvo.');
+      // O banner é reduzido no navegador; a paleta automática é salva junto para não recalcular a cada visita.
+      let bannerId = removeBanner ? null : own?.bannerUrl?.split('/').pop() ?? null;
+      let autoPalette = bannerId ? own?.autoPalette ?? null : null;
+      if (appearance && bannerFile) {
+        const blob = await prepareBanner(bannerFile);
+        if (blob.size > 8*1024*1024) throw Error('O banner deve ter até 8 MB.');
+        bannerId = crypto.randomUUID();
+        const result = await api('/api/uploads',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-upload-id':bannerId},body:blob});
+        if (!result.ok) { const data=await result.json().catch(()=>({})); throw Error(data.error || 'Não foi possível enviar o banner.'); }
+        const palette = newPalette?.palette !== undefined ? newPalette.palette : bannerPreview ? await bannerPalette(bannerPreview).catch(() => null) : null;
+        autoPalette = palette ? paletteToTriple(palette) : null;
+      } else if (appearance && bannerId && !autoPalette && own?.bannerUrl) autoPalette = await bannerPalette(own.bannerUrl).then(paletteToTriple).catch(() => null);
+      await jsonApi('/api/profile','PATCH',{description,avatarId,...(nameColors?{nameColor:chosenColor}:{}),...(statuses?{status:statusText}:{}),...(appearance?{bannerId,bannerCrop:crop,appearanceMode:mode,customColors:custom?paletteToTriple(custom):null,autoPalette}:{})});
+      await refresh(); setFile(null); setPreview(null); setRemoveAvatar(false); setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setNewPalette(null); setMessage('Perfil salvo.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível salvar.'); }
     finally { setSaving(false); }
   }
   const chosenColor = color.trim() ? normalizeHexColor(color) : null;
   const colorProblem = color.trim() && !chosenColor ? 'Digite a cor no formato #RRGGBB, por exemplo #FF8800.' : chosenColor && !readableNameColor(chosenColor) ? 'Essa cor é escura demais para ler no fundo do chat. Escolha uma mais clara.' : '';
   const shown = {name:name.trim() || user.name, avatarUrl:removeAvatar ? null : preview || me.avatarUrl};
+  const shownBanner = removeBanner ? null : bannerPreview || own?.bannerUrl || null;
+  const previewProfile:ProfileData = {...(own ?? {id:user.id,description:''}), name:shown.name, avatarUrl:shown.avatarUrl, nameColor:chosenColor && !colorProblem ? chosenColor : null, status:statusText.trim(), description, bannerUrl:shownBanner, bannerCrop:crop, appearanceMode:mode, customColors:custom ? paletteToTriple(custom) : null, autoPalette:bannerFile || removeBanner ? null : own?.autoPalette ?? null};
+  const savedCrop = validCrop(own?.bannerCrop), savedCustom = own?.customColors?.join() ?? '';
+  const appearanceChanged = Boolean(bannerFile) || removeBanner || crop.x!==savedCrop.x || crop.y!==savedCrop.y || crop.zoom!==savedCrop.zoom || mode!==(own?.appearanceMode==='custom' ? 'custom' : 'auto') || (custom ? paletteToTriple(custom).join() : '')!==savedCustom;
+  const autoStatus = !shownBanner ? 'none' : bannerFile ? newPalette?.palette===undefined ? 'loading' : newPalette.palette ? 'ready' : 'failed' : 'ready';
   const trigger = variant==='avatar'
     ? <button className="header-avatar-button" disabled={!own} onClick={open} aria-label="Meu perfil e conta" title="Meu perfil e conta"><Avatar person={me}/></button>
     : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label="Meu perfil e conta"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil e conta"><GearIcon/></span></button>;
@@ -152,6 +194,7 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
             <small>PNG, JPG, WebP ou GIF, até 8 MB.</small>
           </div>
         </div>
+        {appearance && <AppearanceSettings preview={previewProfile} hasBanner={Boolean(shownBanner)} newBanner={Boolean(bannerFile)} removing={removeBanner} canRemove={Boolean(own?.bannerUrl)} disabled={saving} onPickBanner={chooseBanner} onToggleRemove={() => setRemoveBanner(!removeBanner)} crop={crop} setCrop={setCrop} mode={mode} setMode={setMode} custom={custom} setCustom={setCustom} autoStatus={autoStatus} onCancel={resetAppearance} changed={appearanceChanged}/>}
         {statuses && <><label>Status<input value={statusText} onChange={event => setStatusText(event.target.value)} maxLength={60} placeholder="Ex.: jogando Valorant 🎮" enterKeyHint="done" disabled={saving}/></label>
         <small className="field-help">Aparece embaixo do seu nome para todo mundo. {statusText.length}/60</small></>}
         <label>Apelido<input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={32} required autoComplete="nickname" disabled={saving}/></label>
@@ -190,5 +233,5 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
 export function OnlineMembers() {
   const {people,showProfile,voiceChannels} = usePresence();
   const {voice} = useAccount();
-  return <section className="online-members" aria-labelledby="online-members-title"><h2 className="sidebar-section-label" id="online-members-title">ONLINE <span>{people.length}</span></h2>{people.length ? <ul>{people.map(person => { const calls=voice.filter(channel=>voiceChannels?.[channel.id]?.includes(person.id)).map(channel=>channel.name); return <li key={person.id}><button className="online-profile-button" onClick={()=>showProfile(person.id)} aria-label={'Ver perfil de '+person.name}><span className="online-avatar"><Avatar person={person}/><i aria-hidden="true"/></span><span><strong style={person.nameColor ? {color:person.nameColor} : undefined}>{person.name}</strong>{calls.length > 0 && <small className="online-voice-status">Na call · {calls.join(', ')}</small>}{person.status ? <small className="custom-status">{person.status}</small> : !calls.length && person.description ? <small>{person.description}</small> : null}</span></button></li>; })}</ul> : <p className="sidebar-empty">Ninguém online agora.</p>}</section>;
+  return <section className="online-members" aria-labelledby="online-members-title"><h2 className="sidebar-section-label" id="online-members-title">ONLINE <span>{people.length}</span></h2>{people.length ? <ul>{people.map(person => { const calls=voice.filter(channel=>voiceChannels?.[channel.id]?.includes(person.id)).map(channel=>channel.name); return <li key={person.id}><ProfileMiniCard profile={person} calls={calls} onOpen={()=>showProfile(person.id)}/></li>; })}</ul> : <p className="sidebar-empty">Ninguém online agora.</p>}</section>;
 }

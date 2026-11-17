@@ -56,7 +56,7 @@ export function GifPicker({ onPick, onClose, busy }: { onPick: (gif: GifResult) 
     <p className="gif-dialog-status" role="status">{busy ? 'Enviando GIF…' : loading && !gifs.length ? 'Carregando GIFs…' : !error && !gifs.length ? 'Nenhum GIF encontrado.' : query.trim() ? '' : 'Em alta agora'}</p>
     {error && <p className="error-message" role="alert">{error}</p>}
     <div className="gif-grid" aria-busy={loading}>
-      {gifs.map(gif => <button type="button" key={gif.id} className="gif-choice" disabled={busy} onClick={() => onPick(gif)} aria-label={'Enviar GIF: ' + gif.title} title={gif.title} style={{ aspectRatio: gif.width + ' / ' + gif.height }}>
+      {gifs.map(gif => <button type="button" key={gif.id} className="gif-choice" disabled={busy} onClick={() => onPick(gif)} aria-label={'Enviar GIF: ' + gif.title} title={gif.title}>
         <img src={gif.previewUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" width={gif.width} height={gif.height}/>
       </button>)}
     </div>

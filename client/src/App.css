@@ -813,7 +813,7 @@ input::placeholder { color: #949387; }
    ========================================================================== */
 .gif-button { gap:0; }
 .gif-button-badge { display:inline-grid; place-items:center; min-width:34px; height:22px; padding:0 6px; border:1.5px solid currentColor; border-radius:5px; font-size:10px; font-weight:800; letter-spacing:.6px; }
-.gif-dialog { width:min(560px,calc(100vw - 24px)); height:min(640px,calc(100dvh - 32px)); padding:0; display:flex; flex-direction:column; overflow:hidden; color:#eee8dc; background:#20211c; border:1px solid #68685d; border-radius:12px; }
+.gif-dialog { width:min(760px,calc(100vw - 24px)); height:min(760px,calc(100dvh - 32px)); max-height:calc(100dvh - 32px); padding:0; display:flex; flex-direction:column; overflow:hidden; color:#eee8dc; background:#20211c; border:1px solid #68685d; border-radius:12px; }
 .gif-dialog:not([open]) { display:none; }
 .gif-dialog::backdrop { background:#000b; }
 .gif-dialog-header { display:flex; gap:8px; padding:12px; border-bottom:1px solid #34352f; }
@@ -822,10 +822,9 @@ input::placeholder { color: #949387; }
 .gif-dialog-status { margin:0; padding:10px 14px 0; color:#aaa99d; font-size:12px; letter-spacing:.4px; }
 .gif-dialog-status:empty { display:none; }
 .gif-dialog .error-message { margin:10px 12px 0; }
-.gif-grid { flex:1; min-height:0; overflow-x:hidden; overflow-y:auto; padding:10px 12px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; align-content:start; align-items:start; }
-.gif-choice { display:block; width:100%; margin:0; padding:0; overflow:hidden; border:2px solid transparent; border-radius:8px; background:#2a2b25; break-inside:avoid; cursor:pointer; }
-.gif-choice { position:relative; min-height:0; }
-.gif-choice img { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:cover; }
+.gif-grid { flex:1; min-height:0; overflow-x:hidden; overflow-y:auto; padding:12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:max-content; gap:10px; align-content:start; }
+.gif-choice { display:block; width:100%; margin:0; padding:0; overflow:hidden; border:2px solid transparent; border-radius:8px; background:#2a2b25; cursor:pointer; }
+.gif-choice img { display:block; width:100%; height:auto; aspect-ratio:4/3; object-fit:contain; }
 .gif-choice:hover:not(:disabled), .gif-choice:focus-visible { border-color:#e6c48b; outline:none; }
 .gif-more { margin:0 12px 8px; }
 .gif-attribution { padding:8px 12px max(8px,env(safe-area-inset-bottom)); border-top:1px solid #34352f; color:#aaa99d; font-size:10px; font-weight:700; letter-spacing:1.2px; text-align:right; text-transform:uppercase; }
@@ -834,8 +833,10 @@ input::placeholder { color: #949387; }
 .giphy-message iframe { display:block; width:100%; height:100%; border:0; }
 .giphy-message > button { width:100%; height:100%; }
 @media (max-width:767px) {
-  .gif-dialog { width:100vw; max-width:100vw; height:85dvh; max-height:85dvh; margin:auto 0 0; border-radius:16px 16px 0 0; border-width:1px 0 0; }
-  .gif-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .gif-dialog { width:100vw; max-width:100vw; height:90dvh; max-height:90dvh; margin:auto 0 0; border-radius:16px 16px 0 0; border-width:1px 0 0; }
+}
+@media (max-width:360px) {
+  .gif-grid { grid-template-columns:minmax(0,1fr); }
 }
 
 /* ==========================================================================

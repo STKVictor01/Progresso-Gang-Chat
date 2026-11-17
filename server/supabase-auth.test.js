@@ -122,6 +122,17 @@ test('convite confirmado cria membro e só pode ser usado uma vez',async()=>{
     // "Membro desde" usa a criação da conta no Supabase Auth.
     const presence=(await app.inject({url:'/presence',headers:{cookie:cookies(member)}})).json();
     assert.equal(presence.profiles.find(item=>item.id===member.json().user.id).memberSince,Date.parse('2025-03-04T05:06:07.000Z'));
+    assert.deepEqual(presence.profiles.find(item=>item.id===member.json().user.id).badges,['founder']);
+    assert.equal((await app.inject({method:'DELETE',url:'/admin/users/'+member.json().user.id+'/badges/founder',headers:{origin,...auth}})).statusCode,200);
+    const again=await request(app,'/auth/login',{email:data.email,password});assert.equal(again.statusCode,200);
+    const later=(await app.inject({url:'/presence',headers:{cookie:cookies(again)}})).json();
+    assert.deepEqual(later.profiles.find(item=>item.id===member.json().user.id).badges,[]);
+    const nextInvite=(await request(app,'/admin/invites',{},auth)).json().token;
+    const next={token:nextInvite,username:'Pessoa nova',email:'nova@example.invalid',password,phase:'start'};
+    assert.equal((await request(app,'/auth/register',next)).statusCode,200);provider.confirm(next.email);provider.users.get(next.email).created_at='2026-11-17T04:01:55.000Z';
+    const newMember=await request(app,'/auth/register',{...next,phase:'finish'});assert.equal(newMember.statusCode,201);
+    const after=(await app.inject({url:'/presence',headers:{cookie:cookies(newMember)}})).json();
+    assert.deepEqual(after.profiles.find(item=>item.id===newMember.json().user.id).badges,[]);
     assert.equal((await request(app,'/admin/invites',{}, {cookie:cookies(member),'x-csrf-token':member.json().csrf})).statusCode,403);
     assert.equal((await request(app,'/auth/register',{...data,username:'Outra',phase:'finish'})).statusCode,403);
   }finally{if(app)await app.close();rmSync(dir,{recursive:true,force:true});}

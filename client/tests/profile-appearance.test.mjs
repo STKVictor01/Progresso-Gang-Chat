@@ -11,7 +11,7 @@ function assertReadable(palette) {
     assert.ok(contrast(vars['--pf-muted'], surface) >= 4.5, 'texto secundário ' + JSON.stringify(vars));
     assert.ok(contrast(vars['--pf-accent'], surface) >= 3, 'destaque ' + JSON.stringify(vars));
   }
-  assert.ok(contrast(vars['--pf-on-accent'], vars['--pf-accent']) >= 3, 'texto sobre o destaque');
+  assert.ok(contrast(vars['--pf-on-accent'], vars['--pf-accent']) >= 4.5, 'texto sobre o destaque');
 }
 
 test('banner colorido gera paleta do mesmo tom e legível', () => {
@@ -56,6 +56,8 @@ test('combinações ruins têm texto e destaque corrigidos', () => {
     { primary: '#777777', secondary: '#808080', accent: '#7a7a7a' },
     { primary: '#000000', secondary: '#050505', accent: '#000010' },
     { primary: '#ff0000', secondary: '#00ff00', accent: '#0000ff' },
+    { primary: '#824367', secondary: '#a69060', accent: '#fd2b2d' },
+    { primary: '#fef687', secondary: '#c2dfdd', accent: '#728bee' },
   ]) assertReadable(palette);
   // A cor escolhida para as superfícies é preservada.
   assert.equal(paletteVars({ primary: '#777777', secondary: '#808080', accent: '#7a7a7a' })['--pf-primary'], '#777777');

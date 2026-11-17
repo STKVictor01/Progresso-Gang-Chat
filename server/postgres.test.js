@@ -56,6 +56,12 @@ test('Postgres protege contas, mantém anexos e separa permissões',{skip:!enabl
     assert.equal((await call(user,'GET','/soundboard?channel=geral')).json().sounds.length,1);
     assert.equal((await call(user,'DELETE','/voice-entry')).statusCode,200);
     assert.equal((await call(admin,'GET','/voice-entry/'+member.json().user.id)).statusCode,404);
+    const bannerId=randomUUID(),banner=await sharp({create:{width:680,height:240,channels:3,background:'#3366aa'}}).png().toBuffer();
+    assert.equal((await call(user,'POST','/uploads',banner,{'content-type':'application/octet-stream','x-upload-id':bannerId})).statusCode,201);
+    assert.equal((await call(user,'PATCH','/profile',{description:'',avatarId:null,bannerId,appearanceMode:'custom',customColors:['#123456','#345678','#abcdef'],bannerCrop:{x:20,y:80,zoom:150}})).statusCode,200);
+    const appearance=(await call(admin,'GET','/presence')).json().profiles.find(profile=>profile.id===member.json().user.id);
+    assert.equal(appearance.bannerUrl,'/api/media/'+bannerId);assert.deepEqual(appearance.customColors,['#123456','#345678','#abcdef']);assert.deepEqual(appearance.bannerCrop,{x:20,y:80,zoom:150});
+    assert.match((await call(admin,'GET','/media/'+bannerId+'?thumb=1')).headers['content-type'],/^image\/webp/);
     const payload={clientId:randomUUID(),text:'Envio repetido',channel:'general'};
     const duplicate=await Promise.all([call(user,'POST','/messages',payload),call(user,'POST','/messages',payload)]);
     assert.deepEqual(duplicate.map(response=>response.statusCode).sort(),[200,201]);

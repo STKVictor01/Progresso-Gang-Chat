@@ -53,7 +53,8 @@ export function useProfileVars(profile:ProfileData) {
   return useMemo(() => paletteVars(resolvePalette(profile, auto)), [key]);
 }
 
-export function BannerImage({url,crop}:{url?:string|null;crop?:BannerCrop}) {
+export function BannerImage({url:source,crop,thumbnail=false}:{url?:string|null;crop?:BannerCrop;thumbnail?:boolean}) {
+  const url=thumbnail && source?.startsWith('/api/media/') ? source+(source.includes('?') ? '&' : '?')+'thumb=1' : source;
   const [failed,setFailed] = useState<string|null>(null);
   const [loaded,setLoaded] = useState<string|null>(null);
   if (!url || failed===url) return null;
@@ -116,7 +117,7 @@ export function ProfileMiniCard({profile,calls,onOpen}:{profile:ProfileData;call
   const vars = useProfileVars(profile);
   const callColor = ensureContrast('#ff8b7f',[vars['--pf-primary']],4.5);
   return <button className="online-profile-button profile-mini" style={vars as CSSProperties} onClick={onOpen} aria-label={'Ver perfil de '+profile.name}>
-    {profile.bannerUrl && <span className="profile-mini-banner" aria-hidden="true"><BannerImage url={profile.bannerUrl} crop={profile.bannerCrop}/></span>}
+    {profile.bannerUrl && <span className="profile-mini-banner" aria-hidden="true"><BannerImage url={profile.bannerUrl} crop={profile.bannerCrop} thumbnail/></span>}
     <span className="online-avatar"><ProfileAvatar person={profile}/><i aria-hidden="true"/></span>
     <span className="profile-mini-copy">
       <strong style={{color:readableName(profile.nameColor,vars)}}>{profile.name}{profile.badges?.includes('founder') && <FounderBadge compact/>}</strong>

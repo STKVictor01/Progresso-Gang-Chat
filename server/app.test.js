@@ -228,6 +228,10 @@ test('online presence and profile images use authenticated owners', async () => 
       assert.equal((await app.inject('/messages?channel='+encodeURIComponent(channel))).json().messages[0].user_id,people[0].id);
     }
     assert.equal((await app.inject('/media/'+id)).statusCode,200);
+    const thumbnail=await app.inject('/media/'+id+'?thumb=1');
+    assert.equal(thumbnail.statusCode,200);assert.match(thumbnail.headers['content-type'],/^image\/webp/);
+    const dimensions=await sharp(thumbnail.rawPayload).metadata();assert.ok(dimensions.width<=340 && dimensions.height<=120);
+    assert.equal((await app.inject({url:'/media/'+id+'?thumb=1',headers:{cookie:''}})).statusCode,401);
     assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),attachmentIds:[id]}})).statusCode,409);
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'x'.repeat(201),avatarId:null}})).statusCode,400);
   } finally { await app.close(); }
@@ -645,6 +649,14 @@ test('banner e cores do perfil são validados, preservados e públicos só para 
     saved=await profile();assert.equal(saved.appearanceMode,'custom');assert.equal(saved.bannerUrl,'/api/media/'+id);
     for (const payload of [{customColors:['red','#000000','#ffffff']},{customColors:['#000000','#ffffff']},{customColors:['#000000;}body{','#000000','#000000']},{autoPalette:'#000000 #000000 #000000'},{appearanceMode:'dark'},{bannerCrop:{x:101,y:0,zoom:100}},{bannerCrop:{x:1.5,y:0,zoom:100}},{bannerCrop:{x:0,y:0,zoom:50}},{bannerId:'nao-e-uuid'},{bannerId:randomUUID()}])
       assert.equal((await patch(payload)).statusCode,400,JSON.stringify(payload));
+    assert.equal((await app.inject({method:'POST',url:'/auth/logout',payload:{}})).statusCode,200);
+    const login=await app.inject({method:'POST',url:'/auth/login',payload:{username:'Vitão',password:testPassword}});
+    assert.equal(login.statusCode,200);
+    const cookie=login.cookies[0].name+'='+login.cookies[0].value;
+    const afterLogin=(await app.inject({url:'/presence',headers:{cookie}})).json().profiles[0];
+    assert.equal(afterLogin.bannerUrl,'/api/media/'+id);
+    assert.equal(afterLogin.appearanceMode,'custom');
+    assert.deepEqual(afterLogin.customColors,['#222222','#333333','#ff8800']);
   } finally { await app.close(); }
 });
 

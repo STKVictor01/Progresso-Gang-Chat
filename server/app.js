@@ -13,7 +13,7 @@ import { installMusic } from './music.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 27;
+export const HEALTH_VERSION = 28;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -123,13 +123,17 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   const profileColumns=(await db.prepare('PRAGMA table_info(profiles)').all()).map(c=>c.name);
   if (!profileColumns.includes('name_color')) (await db.exec('ALTER TABLE profiles ADD COLUMN name_color TEXT'));
   if (!profileColumns.includes('status_text')) (await db.exec("ALTER TABLE profiles ADD COLUMN status_text TEXT NOT NULL DEFAULT ''"));
-  if (!profileColumns.includes('banner_id')) (await db.exec(`ALTER TABLE profiles ADD COLUMN banner_id TEXT REFERENCES attachments(id); ALTER TABLE profiles ADD COLUMN banner_crop TEXT; ALTER TABLE profiles ADD COLUMN appearance_mode TEXT NOT NULL DEFAULT 'auto' CHECK(appearance_mode IN ('auto','custom')); ALTER TABLE profiles ADD COLUMN custom_colors TEXT; ALTER TABLE profiles ADD COLUMN auto_palette TEXT;`));
+  if (!profileColumns.includes('banner_id')) await db.exec('ALTER TABLE profiles ADD COLUMN banner_id TEXT REFERENCES attachments(id)');
+  if (!profileColumns.includes('banner_crop')) await db.exec('ALTER TABLE profiles ADD COLUMN banner_crop TEXT');
+  if (!profileColumns.includes('appearance_mode')) await db.exec("ALTER TABLE profiles ADD COLUMN appearance_mode TEXT NOT NULL DEFAULT 'auto' CHECK(appearance_mode IN ('auto','custom'))");
+  if (!profileColumns.includes('custom_colors')) await db.exec('ALTER TABLE profiles ADD COLUMN custom_colors TEXT');
+  if (!profileColumns.includes('auto_palette')) await db.exec('ALTER TABLE profiles ADD COLUMN auto_palette TEXT');
   }
   // No PostgreSQL as colunas vêm da migração; até ela ser aplicada, a cor do nick e o status ficam desativados.
   const profileColumn = async name => db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='profiles' AND column_name=?").get(name));
   const nameColors = await profileColumn('name_color'), statuses = await profileColumn('status_text');
   // Banner e cores do perfil, e as insígnias (como Membro Fundador), também dependem da migração.
-  const appearance = await profileColumn('banner_id') && await profileColumn('auto_palette');
+  const appearance = (await Promise.all(['banner_id','banner_crop','appearance_mode','custom_colors','auto_palette'].map(profileColumn))).every(Boolean);
   const badges = db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='user_badges'").get());
   if (startupCleanup) await cleanAbandoned();
   // The launcher compares this version to restart a backend left running from before an update.
@@ -268,7 +272,8 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
     let body=Buffer.from(media.data);
     let mime=media.mime;
-    if(request.query.still==='1'&&media.animated){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).png().toBuffer();mime='image/png';}
+    if(request.query.thumb==='1' && mime.startsWith('image/')){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).resize({width:340,height:120,fit:'inside',withoutEnlargement:true}).webp({quality:75}).toBuffer();mime='image/webp';}
+    else if(request.query.still==='1'&&media.animated){body=await sharp(body,{limitInputPixels:MAX_PIXELS}).png().toBuffer();mime='image/png';}
     const extension=mime==='image/jpeg'?'jpg':mime.split('/')[1];
     const disposition=mime.startsWith('image/')?`inline; filename="imagem.${extension}"`:`attachment; filename="arquivo"; filename*=UTF-8''${dispositionName(media.filename || 'arquivo')}`;
     return reply.header('Content-Type',mime).header('X-Content-Type-Options','nosniff').header('Content-Security-Policy',"default-src 'none'; sandbox").header('Content-Disposition',disposition).header('Cache-Control','no-store').send(body);
@@ -329,8 +334,8 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     if (badges) for (const row of await db.prepare('SELECT user_id,badge FROM user_badges ORDER BY granted_at').all()) granted.set(row.user_id,[...(granted.get(row.user_id) ?? []),row.badge]);
     const serializeProfile = user => ({ id:user.id, name:user.username, description:user.description || '', avatarUrl:user.avatar_id ? '/api/media/'+user.avatar_id : null, nameColor:readableNameColor(user.name_color) ? user.name_color : null, status:user.status_text || '',
       bannerUrl:user.banner_id ? '/api/media/'+user.banner_id : null, bannerCrop:storedCrop(user.banner_crop), appearanceMode:user.appearance_mode==='custom' ? 'custom' : 'auto', customColors:storedTriple(user.custom_colors), autoPalette:storedTriple(user.auto_palette),
-      badges:granted.get(user.id) ?? [], memberSince:Number(user.auth_created_at || user.created_at) || null });
-    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses, appearance };
+      badges:granted.get(user.id) ?? [], memberSince:Number(accounts.usesSupabase ? user.auth_created_at : user.created_at) || null });
+    return { users: rows.filter(user => user.active && online.has(user.id)).map(serializeProfile), profiles: rows.map(serializeProfile), nameColors, statuses, appearance, badgesEnabled:badges };
   });
   app.patch('/profile', async (request,reply) => {
     const {description,avatarId,nameColor,status,bannerId,bannerCrop,appearanceMode,customColors,autoPalette} = request.body ?? {};
@@ -364,14 +369,14 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   app.put('/admin/users/:id/badges/:badge', async (request,reply) => {
     if (!badges) return reply.code(503).send({error:'As insígnias ainda não foram ativadas no servidor.'});
     if (request.params.badge !== 'founder' || !(await db.prepare('SELECT id FROM users WHERE id=?').get(request.params.id))) return reply.code(404).send({error:'Conta ou insígnia não encontrada.'});
-    await db.prepare('INSERT INTO user_badges(user_id,badge,granted_at) VALUES(?,?,?) ON CONFLICT(user_id,badge) DO NOTHING').run(request.params.id,'founder',Date.now());
+    await db.transaction(async()=>{await db.lock('founder:'+request.params.id);await db.prepare('INSERT INTO user_badges(user_id,badge,granted_at) VALUES(?,?,?) ON CONFLICT(user_id,badge) DO NOTHING').run(request.params.id,'founder',Date.now());if(accounts.founderChecked)await db.prepare('UPDATE auth_links SET founder_checked=1 WHERE user_id=?').run(request.params.id);});
     activity.record('user-update',{actor:request.user.username});
     return {ok:true};
   });
   app.delete('/admin/users/:id/badges/:badge', async (request,reply) => {
     if (!badges) return reply.code(503).send({error:'As insígnias ainda não foram ativadas no servidor.'});
     if (request.params.badge !== 'founder') return reply.code(404).send({error:'Insígnia não encontrada.'});
-    await db.prepare('DELETE FROM user_badges WHERE user_id=? AND badge=?').run(request.params.id,'founder');
+    await db.transaction(async()=>{await db.lock('founder:'+request.params.id);await db.prepare('DELETE FROM user_badges WHERE user_id=? AND badge=?').run(request.params.id,'founder');if(accounts.founderChecked)await db.prepare('UPDATE auth_links SET founder_checked=1 WHERE user_id=?').run(request.params.id);});
     activity.record('user-update',{actor:request.user.username});
     return {ok:true};
   });

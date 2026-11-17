@@ -13,6 +13,8 @@ const validEmail = value => typeof value==='string' && value.length<=254 && /^[^
 const validNewPassword = value => validPassword(value) && Buffer.byteLength(value,'utf8')<=72;
 const passwordHash = value => argon2.hash(value, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUser = user => ({ id: user.id, name: user.username, role: user.role, owner: Boolean(user.is_owner) });
+// Fixo no commit que introduziu os perfis, para não incluir contas futuras.
+export const FOUNDER_CUTOFF = Date.parse('2026-11-17T04:01:55Z');
 
 export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpiresAt = Date.now()+86400000, secureCookies = true, allowedOrigins, onOwnerReady = () => {}, recordEvent = () => {}, authProvider, startupCleanup = true }) {
   if (db.kind==='sqlite') (await db.exec(`CREATE TABLE IF NOT EXISTS users (
@@ -34,11 +36,23 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
       const columns=await db.prepare('PRAGMA table_info(auth_links)').all();
       if(!columns.some(column=>column.name==='auth_user_id'))await db.exec('BEGIN; ALTER TABLE auth_links ADD COLUMN auth_user_id TEXT; UPDATE auth_links SET auth_user_id=user_id; CREATE UNIQUE INDEX auth_links_remote_id ON auth_links(auth_user_id); COMMIT');
       if(!columns.some(column=>column.name==='auth_created_at'))await db.exec('ALTER TABLE auth_links ADD COLUMN auth_created_at INTEGER');
+      if(!columns.some(column=>column.name==='founder_checked'))await db.exec('ALTER TABLE auth_links ADD COLUMN founder_checked INTEGER NOT NULL DEFAULT 0 CHECK(founder_checked IN (0,1))');
     } else await db.prepare('SELECT user_id,auth_user_id FROM auth_links LIMIT 1').all();
   }
   // Data de criação da conta no Supabase Auth, para mostrar "Membro desde". No PostgreSQL vem da migração.
   const authCreatedAt=Boolean(authProvider) && (db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='auth_links' AND column_name='auth_created_at'").get()));
-  const rememberCreatedAt=async(userId,remote)=>{const created=Date.parse(remote?.created_at);if(authCreatedAt&&Number.isSafeInteger(created)&&created>0)await db.prepare('UPDATE auth_links SET auth_created_at=? WHERE user_id=? AND auth_created_at IS NULL').run(created,userId);};
+  const founderChecked=authCreatedAt && (db.kind==='sqlite' || Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='auth_links' AND column_name='founder_checked'").get()) && Boolean(await db.prepare("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='user_badges'").get()));
+  const rememberCreatedAt=async(userId,remote)=>{
+    const created=Date.parse(remote?.created_at);
+    if(!authCreatedAt || !Number.isSafeInteger(created) || created<=0)return;
+    if(!founderChecked){await db.prepare('UPDATE auth_links SET auth_created_at=? WHERE user_id=? AND (auth_created_at IS NULL OR auth_created_at<>?)').run(created,userId,created);return;}
+    await db.transaction(async()=>{
+      await db.lock('founder:'+userId);
+      const first=await db.prepare('UPDATE auth_links SET auth_created_at=?,founder_checked=1 WHERE user_id=? AND founder_checked=0').run(created,userId);
+      if(first.changes && remote.email_confirmed_at && validEmail(remote.email) && created<FOUNDER_CUTOFF) await db.prepare('INSERT INTO user_badges(user_id,badge,granted_at) VALUES(?,?,?) ON CONFLICT(user_id,badge) DO NOTHING').run(userId,'founder',Date.now());
+      if(!first.changes)await db.prepare('UPDATE auth_links SET auth_created_at=? WHERE user_id=? AND (auth_created_at IS NULL OR auth_created_at<>?)').run(created,userId,created);
+    });
+  };
   if (ownerSetupToken && !(await db.prepare('SELECT password_hash FROM users WHERE is_owner=1').get()).password_hash) (await db.prepare('INSERT INTO owner_setup VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at').run(digest(ownerSetupToken),ownerSetupExpiresAt));
   if (startupCleanup) (await db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now()));
   await app.register(cookie);
@@ -303,6 +317,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
   });
   return {
     authCreatedAt,
+    usesSupabase:Boolean(authProvider), founderChecked,
     voiceExists: async id => Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id))),
     conversationExists: async id => typeof id==='string' && (id.startsWith('voice:') ? Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id.slice(6)))) : Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='text'").get(id)))),
   };

@@ -53,13 +53,15 @@ function mix(a:string,b:string,amount:number) {
 export function ensureContrast(color:string,backgrounds:string[],ratio:number) {
   const okay = (value:string) => backgrounds.every(background => contrast(value,background) >= ratio);
   if (okay(color)) return color;
-  const darkBackground = backgrounds.every(background => luminance(background) < 0.18);
+  const canLighten = okay('#ffffff'), canDarken = okay('#000000');
   const [h,s,l] = rgbToHsl(fromHex(color));
   for (let step=1; step<=20; step++) {
-    const next = toHex(hslToRgb([h,s,clamp(darkBackground ? l+(1-l)*step/20 : l-l*step/20,0,1)]));
-    if (okay(next)) return next;
+    const lighter = toHex(hslToRgb([h,s,clamp(l+(1-l)*step/20,0,1)]));
+    const darker = toHex(hslToRgb([h,s,clamp(l-l*step/20,0,1)]));
+    if (canLighten && okay(lighter)) return lighter;
+    if (canDarken && okay(darker)) return darker;
   }
-  return darkBackground ? '#ffffff' : '#000000';
+  return canLighten ? '#ffffff' : '#000000';
 }
 
 // Agrupa os pixels em tons próximos: a cor de um único pixel extremo não domina a paleta.
@@ -124,7 +126,7 @@ export function paletteVars(palette:ProfilePalette):Record<string,string> {
   let muted = text;
   for (const amount of [0.4,0.32,0.24,0.16,0.08]) { const candidate = mix(text,secondary,amount); if (contrast(candidate,primary)>=4.5 && contrast(candidate,secondary)>=4.5) { muted = candidate; break; } }
   const accent = ensureContrast(palette.accent,[primary,secondary],3);
-  const onAccent = contrast('#ffffff',accent) >= contrast('#151412',accent) ? '#ffffff' : '#151412';
+  const onAccent = contrast('#ffffff',accent) >= contrast('#000000',accent) ? '#ffffff' : '#000000';
   return {'--pf-primary':primary,'--pf-secondary':secondary,'--pf-accent':accent,'--pf-text':text,'--pf-muted':muted,'--pf-on-accent':onAccent};
 }
 

@@ -116,8 +116,20 @@ export function ProfileCard({profile,actions,children,onBannerPan,headingId}:Car
 export function ProfileMiniCard({profile,calls,onOpen}:{profile:ProfileData;calls:string[];onOpen:()=>void}) {
   const vars = useProfileVars(profile);
   const callColor = ensureContrast('#ff8b7f',[vars['--pf-primary']],4.5);
-  return <button className="online-profile-button profile-mini" style={vars as CSSProperties} onClick={onOpen} aria-label={'Ver perfil de '+profile.name}>
-    {profile.bannerUrl && <span className="profile-mini-banner" aria-hidden="true"><BannerImage url={profile.bannerUrl} crop={profile.bannerCrop} thumbnail/></span>}
+  const [hovered,setHovered] = useState(false);
+  const [focused,setFocused] = useState(false);
+  const [reducedMotion,setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const changed = () => setReducedMotion(query.matches);
+    query.addEventListener('change',changed);
+    return () => query.removeEventListener('change',changed);
+  }, []);
+  const animate = !reducedMotion && (hovered || focused);
+  return <button className="online-profile-button profile-mini" style={vars as CSSProperties} onClick={onOpen} aria-label={'Ver perfil de '+profile.name}
+    onPointerEnter={event => { if (event.pointerType!=='touch') setHovered(true); }} onPointerLeave={() => setHovered(false)}
+    onFocus={event => setFocused(event.currentTarget.matches(':focus-visible'))} onBlur={() => setFocused(false)}>
+    {profile.bannerUrl && <span className="profile-mini-banner" aria-hidden="true"><BannerImage url={profile.bannerUrl} crop={profile.bannerCrop} thumbnail/>{animate && <BannerImage url={profile.bannerUrl} crop={profile.bannerCrop}/>}</span>}
     <span className="online-avatar"><ProfileAvatar person={profile}/><i aria-hidden="true"/></span>
     <span className="profile-mini-copy">
       <strong style={{color:readableName(profile.nameColor,vars)}}>{profile.name}{profile.badges?.includes('founder') && <FounderBadge compact/>}</strong>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { RoomContext, useRoomContext, TrackToggle, DisconnectButton, MediaDeviceMenu, StartAudio, useParticipants, useConnectionState, useIsSpeaking, useLocalParticipant, useTracks } from '@livekit/components-react';
 import { ConnectionState, DisconnectReason, Room, RoomEvent, Track } from 'livekit-client';
@@ -38,7 +38,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     users: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6" /></>,
     headphones: <><path d="M4 14v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="12" width="4" height="8" rx="2" /><rect x="17" y="12" width="4" height="8" rx="2" /></>,
     speaker: <><rect x="6" y="3" width="12" height="18" rx="2" /><circle cx="12" cy="14" r="3.5" /><path d="M12 7h.01" /></>,
-    leave: <><path d="M3 15.5c5-4.5 13-4.5 18 0l-2.5 3-3-1.5v-2a12 12 0 0 0-7 0v2l-3 1.5z"/><path d="M4 4l16 16"/></>,
+    leave: <path d="M3 15.5c5-4.5 13-4.5 18 0l-2.5 3-3-1.5v-2a12 12 0 0 0-7 0v2l-3 1.5z"/>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -55,6 +55,7 @@ function InviteButton() {
   return <button className="button subtle invite-button" onClick={copy}><Icon name="link" /><span aria-live="polite">{message}</span></button>;
 }
 function Member({ participant }: { participant: Participant }) {
+  const audioHelpId = useId();
   const speaking = useIsSpeaking(participant);
   const {profiles,showProfile} = usePresence();
   const profile = profiles.find(person => person.id === participant.identity.split(':')[0]);
@@ -64,9 +65,10 @@ function Member({ participant }: { participant: Participant }) {
   const label = participant.name || 'Participante';
   const nameColor = profile?.nameColor ? {color:profile.nameColor} : undefined;
   const {handlers,menu,openSettings} = useParticipantAudioMenu(participant);
-  if(profile && !isBot) return <li className={'member voice-member-card'+(speaking?' speaking':'')} {...handlers}>
-    <ProfileMiniCard profile={profile} calls={[nav.activeVoice ? 'Call ativa' : 'Call']} onOpen={()=>showProfile(profile.id)}/>
-    <div className="voice-member-actions"><span>{speaking?'Falando agora':participant.isLocal?'Você':'Na call'}</span>{!participant.isLocal&&<><button className="button subtle" onClick={event=>openSettings(event.currentTarget,true)} aria-label={'Ajustar áudio de '+label} aria-haspopup="dialog">Áudio</button>{menu}</>}<QuickParticipantMute participant={participant}/></div>
+  if(profile && !isBot) return <li className={'member voice-member-card'+(speaking?' speaking':'')} {...handlers} title={!participant.isLocal?'Clique com o botão direito ou segure para ajustar o áudio':undefined} onKeyDown={event=>{if(!participant.isLocal && event.shiftKey && event.key==='F10'){event.preventDefault();openSettings(event.currentTarget);}}}>
+    <ProfileMiniCard profile={profile} calls={[nav.activeVoice ? 'Call ativa' : 'Call']} onOpen={()=>showProfile(profile.id)} describedBy={!participant.isLocal?audioHelpId:undefined}/>
+    {!participant.isLocal&&<span id={audioHelpId} className="sr-only">Para ajustar o áudio, use clique direito, toque prolongado ou Shift F10.</span>}
+    <div className="voice-member-actions"><span className="sr-only">{speaking?'Falando agora':participant.isLocal?'Você':'Na call'}</span>{!participant.isLocal&&menu}<QuickParticipantMute participant={participant}/></div>
   </li>;
   return <li className={`member ${speaking ? 'speaking' : ''}`} {...handlers}>
     <button className="voice-profile-button" disabled={!profile} onClick={()=>profile && showProfile(profile.id)} aria-label={'Ver perfil de '+label}>{isBot ? <CoverArt cover={nav.activeVoice ? music[nav.activeVoice]?.cover : undefined} className="member-avatar music-member-cover"/> : profile?.avatarUrl ? <img className="member-avatar" src={profile.avatarUrl} alt=""/> : <span className="member-avatar">{label.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}</button>
@@ -132,7 +134,7 @@ function Sidebar({open, close, manage}: {open: boolean; close: () => void; manag
   const {voice:CHANNELS,text,site,user}=useAccount();
   const nav = useNavigation();
   const activity = useActivity();
-  return <aside id="community-sidebar" className={"sidebar community-sidebar " + (open ? "mobile-open" : "")} aria-label="Canais da comunidade"><div className="mobile-sidebar-header"><Brand /><button className="mobile-menu-close" onClick={close} aria-label="Fechar canais"><Icon name="close" /></button></div><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais" onClick={event => { if ((event.target as HTMLElement).closest("button")) close(); }}>{sectionOrder(text,CHANNELS).map(kind => kind==='text' ? <div className="channel-section" key="text"><div className="sidebar-section-label">CONVERSA <span>{text.length}</span>{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de texto" title="Criar ou gerenciar canais de texto" onClick={()=>manage('text')}>+</button>}</div>{text.map(channel=>{const current=nav.view === 'text' && nav.selectedText === channel.id;const fresh=!current && activity.unread(channel.id);const mentioned=current ? 0 : activity.mentions(channel.id);return <button key={channel.id} className={'channel text-channel ' + (current ? 'active' : '') + (fresh || mentioned ? ' has-unread' : '')} aria-current={current ? 'page' : undefined} aria-label={'#'+channel.name+(mentioned ? ', mencionaram você' : fresh ? ', mensagens novas' : '')} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span className="channel-name">#{channel.name}</span><ChannelBadge mentioned={mentioned} fresh={fresh}/></button>;})}</div> : <div className="channel-section" key="voice"><div className="sidebar-section-label voice-label">CANAIS DE VOZ <span>{CHANNELS.length}</span>{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de voz" title="Criar ou gerenciar canais de voz" onClick={()=>manage('voice')}>+</button>}</div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</div>)}</nav><div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Na call' : 'Online'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
+  return <aside id="community-sidebar" className={"sidebar community-sidebar " + (open ? "mobile-open" : "")} aria-label="Canais da comunidade"><div className="mobile-sidebar-header"><Brand /><button className="mobile-menu-close" onClick={close} aria-label="Fechar canais"><Icon name="close" /></button></div><div className="community-label">{site.tagline} <span className="tiny-star">★</span></div><nav className="channel-navigation" aria-label="Canais" onClick={event => { if ((event.target as HTMLElement).closest("button")) close(); }}>{sectionOrder(text,CHANNELS).map(kind => kind==='text' ? <div className="channel-section" key="text"><div className="sidebar-section-label">CONVERSA{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de texto" title="Criar ou gerenciar canais de texto" onClick={()=>manage('text')}>+</button>}</div>{text.map(channel=>{const current=nav.view === 'text' && nav.selectedText === channel.id;const fresh=!current && activity.unread(channel.id);const mentioned=current ? 0 : activity.mentions(channel.id);return <button key={channel.id} className={'channel text-channel ' + (current ? 'active' : '') + (fresh || mentioned ? ' has-unread' : '')} aria-current={current ? 'page' : undefined} aria-label={'#'+channel.name+(mentioned ? ', mencionaram você' : fresh ? ', mensagens novas' : '')} onClick={() => nav.selectText(channel.id)}><Icon name="chat" /><span className="channel-name">#{channel.name}</span><ChannelBadge mentioned={mentioned} fresh={fresh}/></button>;})}</div> : <div className="channel-section" key="voice"><div className="sidebar-section-label voice-label">CANAIS DE VOZ{user.role==='admin'&&<button className="channel-manage" type="button" aria-label="Criar ou gerenciar canais de voz" title="Criar ou gerenciar canais de voz" onClick={()=>manage('voice')}>+</button>}</div>{CHANNELS.map(channel => <VoiceChannel key={channel.id} channel={channel} />)}</div>)}</nav><div className="sidebar-bottom"><ProfileEditor status={nav.activeVoice ? 'Na call' : 'Online'} /><div className="network-state"><Icon name="shield" size={17} />Rede privada</div></div></aside>;
 }
 // Painel direito: quem está na call e quem está online.
 function MembersPanel({open, close}: {open: boolean; close: () => void}) {

@@ -15,7 +15,7 @@ export function useIsDesktop() {
   return matches;
 }
 
-export type MenuItem = {label:string; onSelect:()=>void; disabled?:boolean; danger?:boolean; hidden?:boolean};
+export type MenuItem = {label:string; onSelect:()=>void; disabled?:boolean; danger?:boolean; hidden?:boolean; key?:string};
 
 // Botão que abre um menu: setas, Home/End, Escape e clique fora fecham; o foco volta ao botão.
 export function MenuButton({label,className,children,items}:{label:string;className:string;children:ReactNode;items:MenuItem[]}) {
@@ -60,7 +60,7 @@ export function MenuButton({label,className,children,items}:{label:string;classN
     <button ref={button} type="button" className={className} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}
       onClick={() => open ? close(false) : setOpen(true)} onKeyDown={event => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}>{children}</button>
     {open && <div ref={menu} className="popover-menu" role="menu" aria-label={label} onKeyDown={onKeyDown} style={position ? {top:position.top,left:position.left} : {top:0,left:0,visibility:'hidden'}}>
-      {visible.map(item => <button key={item.label} type="button" role="menuitem" className={'popover-menu-item' + (item.danger ? ' danger' : '')} disabled={item.disabled} onClick={() => { close(); item.onSelect(); }}>{item.label}</button>)}
+      {visible.map(item => <button key={item.key ?? item.label} type="button" role="menuitem" className={'popover-menu-item' + (item.danger ? ' danger' : '')} disabled={item.disabled} onClick={() => { close(); item.onSelect(); }}>{item.label}</button>)}
     </div>}
   </>;
 }

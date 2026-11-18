@@ -7,6 +7,7 @@ import { useMultibandTrackVolume, useParticipants, useTracks } from '@livekit/co
 import { Track } from 'livekit-client';
 import { ParticipantAudioTarget } from './participant-audio-menu';
 import { useCallPreferences } from './call-preferences';
+import { ParticipantAudioControls } from './call-audio';
 import { isListenerMuted, listenerId } from './call-settings';
 
 type MusicState = {current:{title:string;artist?:string;cover?:string;url?:string;query?:string}|null;queue:{url?:string;query?:string}[];error:string;available:boolean;paused:boolean;pausePending:boolean};
@@ -55,7 +56,7 @@ export function MusicNowPlaying({channel}:{channel:string}) {
 }
 function MusicVolume() {
   const bot=useParticipants().find(participant=>participant.identity.startsWith('music-bot:'));
-  return bot ? <ParticipantAudioTarget participant={bot} className="music-bot-volume"><span>Volume do Ed Motta <small>Somente para você</small></span></ParticipantAudioTarget> : null;
+  return bot ? <section className="music-bot-volume" aria-label="Volume do Ed Motta"><ParticipantAudioControls participant={bot} music/></section> : null;
 }
 export function MusicControl({channel}:{channel:string}) {
   const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');

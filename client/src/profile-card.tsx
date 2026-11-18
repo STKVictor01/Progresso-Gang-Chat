@@ -114,7 +114,7 @@ export function ProfileCard({profile,actions,children,onBannerPan,headingId}:Car
 
 // Cartão compacto da lista de membros: miniatura do banner ao fundo e texto sobre o gradiente.
 // Com `preview`, é o mesmo cartão sem ação de clique (usado no editor de perfil).
-export function ProfileMiniCard({profile,calls,onOpen,preview=false}:{profile:ProfileData;calls:string[];onOpen?:()=>void;preview?:boolean}) {
+export function ProfileMiniCard({profile,calls,onOpen,preview=false,describedBy}:{profile:ProfileData;calls:string[];onOpen?:()=>void;preview?:boolean;describedBy?:string}) {
   const vars = useProfileVars(profile);
   const callColor = ensureContrast('#ff8b7f',[vars['--pf-primary']],4.5);
   const [hovered,setHovered] = useState(false);
@@ -128,7 +128,7 @@ export function ProfileMiniCard({profile,calls,onOpen,preview=false}:{profile:Pr
   }, []);
   const animate = !preview && !reducedMotion && (hovered || focused);
   const Tag = preview ? 'div' : 'button';
-  const behavior = preview ? {role:'group','aria-label':'Prévia do cartão de membros de '+profile.name} : {onClick:onOpen,'aria-label':'Ver perfil de '+profile.name,
+  const behavior = preview ? {role:'group','aria-label':'Prévia do cartão de membros de '+profile.name} : {onClick:onOpen,'aria-label':'Ver perfil de '+profile.name,'aria-describedby':describedBy,
     onPointerEnter:(event:ReactPointerEvent<HTMLElement>) => { if (event.pointerType!=='touch') setHovered(true); }, onPointerLeave:() => setHovered(false),
     onFocus:(event:FocusEvent<HTMLElement>) => setFocused(event.currentTarget.matches(':focus-visible')), onBlur:() => setFocused(false)};
   return <Tag className={'online-profile-button profile-mini'+(preview ? ' is-preview' : '')+(profile.bannerUrl ? ' has-banner' : '')} style={vars as CSSProperties} {...behavior}>

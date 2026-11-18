@@ -1652,6 +1652,23 @@ input::placeholder { color: var(--muted); }
 .headphone-control .output-select:focus-within { outline:2px solid var(--rose); outline-offset:2px; }
 .headphone-control .output-status:not(:empty) { position:absolute; z-index:5; bottom:calc(100% + 8px); right:0; width:210px; padding:8px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm); }
 .headphone-control .output-toggle { min-width:32px; min-height:44px; padding:4px; }
+.headphone-control .output-menu-trigger { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.headphone-control .popover-menu { max-width:min(340px,calc(100vw - 16px)); max-height:min(320px,calc(100dvh - 16px)); overflow:auto; }
+.headphone-control .popover-menu-item { overflow-wrap:anywhere; }
+.music-bot-volume { display:block; padding:12px; background:var(--bg-2); }
+.music-bot-volume .participant-audio-controls { margin:0; padding:0; border:0; background:transparent; }
+.music-bot-volume .participant-audio-controls label { color:var(--text); font-size:var(--font-sm); font-weight:600; }
+.music-bot-volume .participant-audio-controls .button { align-self:flex-start; padding:8px 12px; }
+.members-panel .member-list, .members-panel .members { gap:6px; }
+.members-panel .voice-member-card { position:relative; padding:0; }
+.members-panel .profile-mini { min-height:72px; max-height:none; }
+.voice-member-card:has(.quick-mute) .profile-mini { padding-right:56px; }
+.voice-member-card .voice-member-actions { position:absolute; z-index:2; top:50%; right:6px; transform:translateY(-50%); padding:0; }
+.voice-member-card .quick-mute { color:var(--text); background:color-mix(in srgb,var(--surface) 82%,transparent); border-color:var(--line); }
+.voice-member-card .quick-mute.is-muted { color:var(--terracotta); background:var(--danger-soft); border-color:var(--accent-line); }
+.progresso-app .voice-dock-row .leave-button { color:#fff; background:color-mix(in srgb,var(--danger) 74%,var(--surface)); border-color:var(--danger); border-radius:10px; }
+.progresso-app .voice-dock-row .leave-button:hover { background:var(--danger); }
+.progresso-app .voice-dock-row .leave-button:focus-visible { outline:2px solid var(--rose); outline-offset:2px; }
 @media(max-width:1100px) { .voice-dock-row { flex-wrap:wrap; } .voice-dock-controls { flex:1 1 auto; } }
 @media(max-width:767px) {
   .voice-dock-row { gap:8px; padding:8px 10px max(8px,env(safe-area-inset-bottom)); }

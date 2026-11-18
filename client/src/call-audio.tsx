@@ -137,21 +137,21 @@ export function QuickParticipantMute({ participant }: { participant: Participant
   const label = participant.name || 'participante';
   return <button className={'quick-mute ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} aria-label={(silenced ? 'Ouvir voz de ' : 'Silenciar voz de ') + label + ' só para mim'} title={silenced ? 'Ouvir este amigo' : 'Silenciar este amigo só para você'} onClick={() => toggleMute(participant.identity, 'microphone')}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" />{silenced ? <path d="M3 3l18 18" /> : <path d="M16 8a6 6 0 0 1 0 8" />}</svg></button>;
 }
-export function ParticipantAudioControls({ participant }: { participant: Participant }) {
+export function ParticipantAudioControls({ participant, music=false }: { participant: Participant; music?:boolean }) {
   const { muted, toggleMute, volumes, setVolume, screenVolumes, setScreenVolume } = useCallPreferences();
   const name = participant.name || 'Participante';
   const id = listenerId(participant.identity);
   const volume = Math.round((volumes[id] ?? 1) * 100);
   return <div className="participant-audio-controls">
-    <label>Volume da voz de {name} <output>{volume}%</output>
+    <label>{music ? 'Volume da música' : 'Volume da voz de '+name} <output>{volume}%</output>
       <input type="range" min="0" max="100" value={volume} onChange={event => setVolume(participant.identity, Number(event.target.value) / 100)} />
     </label>
-    <label>Volume da transmissão de {name} <output>{Math.round((screenVolumes[id] ?? 1) * 100)}%</output>
+    {!music && <label>Volume da transmissão de {name} <output>{Math.round((screenVolumes[id] ?? 1) * 100)}%</output>
       <input type="range" min="0" max="100" value={Math.round((screenVolumes[id] ?? 1) * 100)} onChange={event => setScreenVolume(participant.identity, Number(event.target.value) / 100)} />
-    </label>
-    {(['microphone', 'screen'] as const).map(source => {
+    </label>}
+    {(music ? ['microphone'] as const : ['microphone', 'screen'] as const).map(source => {
       const silenced = isListenerMuted(muted, id, source);
-      const label = source === 'microphone' ? 'voz' : 'transmissão';
+      const label = music ? 'música' : source === 'microphone' ? 'voz' : 'transmissão';
       return <button key={source} className={'button subtle ' + (silenced ? 'is-muted' : '')} aria-pressed={silenced} onClick={() => toggleMute(participant.identity, source)}>{silenced ? 'Reativar' : 'Silenciar'} {label}</button>;
     })}
     <small>Esses ajustes afetam apenas o que você ouve.</small>

@@ -13,7 +13,7 @@ import { createMediaCache } from './media-cache.js';
 const options = { apiKey: 'testkey', apiSecret: randomBytes(32).toString('hex'), serverUrl: 'ws://localhost:7880', logger: false, secureCookies:false, allowedOrigins:['http://localhost:5173'] };
 
 const testPassword=randomBytes(24).toString('base64url');
-test('cache de imagens limita memória, expira e descarta itens menos usados',()=>{
+test('cache de anexos limita memória e quantidade, expira e descarta itens menos usados',()=>{
   let time=0;const cache=createMediaCache({maxBytes:4,ttlMs:10,now:()=>time});
   cache.set('a',Buffer.from('aa'));cache.set('b',Buffer.from('bb'));
   assert.equal(cache.get('a').toString(),'aa');
@@ -21,6 +21,12 @@ test('cache de imagens limita memória, expira e descarta itens menos usados',()
   assert.equal(cache.get('a').toString(),'aa');
   time=10;assert.equal(cache.get('a'),undefined);assert.equal(cache.get('c'),undefined);
   cache.set('grande',Buffer.alloc(5));assert.equal(cache.get('grande'),undefined);
+  const limited=createMediaCache({maxBytes:4,maxEntries:2});
+  limited.set('a',Buffer.from('a'));limited.set('b',Buffer.from('b'));
+  limited.set('c',Buffer.from('c'));
+  assert.equal(limited.get('a'),undefined);
+  assert.equal(limited.get('b').toString(),'b');
+  assert.equal(limited.get('c').toString(),'c');
 });
 test('produção exige PostgreSQL, CA e origens HTTPS seguras',()=>{
   const base={NODE_ENV:'production',PG_CHAT_DATABASE:'postgres',DATABASE_URL:'postgres://example',PG_CHAT_SITE_ORIGIN:'https://gang.example.com',LIVEKIT_URL:'wss://live.example.com',LIVEKIT_API_KEY:'key',LIVEKIT_API_SECRET:randomBytes(32).toString('hex')};
@@ -529,7 +535,13 @@ test('legacy messages migrate to the general chat without losing data', async ()
   try{const messages=(await app.inject('/messages')).json().messages;assert.equal(messages.length,1);assert.equal(messages[0].text,'Mensagem preservada');assert.equal(messages[0].channel,'general');assert.deepEqual(messages[0].attachments,[]);assert.equal((await app.inject('/messages?channel=voice:geral')).json().messages.length,0);}
   finally{await app.close();for(const name of ['chat.sqlite','chat.sqlite-wal','chat.sqlite-shm'])rmSync(join(directory,name),{force:true});rmdirSync(directory);}
 });
-test('arquivos gerais são baixados com segurança e não podem virar imagens de perfil', async () => {
+test('downloads reutilizam os bytes sem dispensar autorização ou publicação', async t => {
+  let payloadReads = 0;
+  const prepare = DatabaseSync.prototype.prepare;
+  t.mock.method(DatabaseSync.prototype, 'prepare', function (sql) {
+    if (sql.startsWith('SELECT a.data ')) payloadReads++;
+    return prepare.call(this, sql);
+  });
   const app=await createApp({...options,dbPath:':memory:'});
   try {
     const id=randomUUID(), contents=Buffer.from('<script>alert(1)</script>');
@@ -538,7 +550,29 @@ test('arquivos gerais são baixados com segurança e não podem virar imagens de
     assert.equal(uploaded.statusCode,201);assert.equal(uploaded.json().mime,'application/octet-stream');assert.equal(uploaded.json().filename,'anotação.html');
     assert.equal((await app.inject({method:'PATCH',url:'/profile',payload:{description:'',avatarId:id}})).statusCode,400);
     const message=await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}});assert.equal(message.statusCode,201);
-    const downloaded=await app.inject('/media/'+id);assert.equal(downloaded.statusCode,200);assert.equal(downloaded.headers['content-type'],'application/octet-stream');assert.match(downloaded.headers['content-disposition'],/^attachment;/);assert.match(downloaded.headers['content-disposition'],/anota%C3%A7%C3%A3o.html/);assert.deepEqual(downloaded.rawPayload,contents);
+    const url='/media/'+id;
+    const downloads=await Promise.all([app.inject(url),app.inject(url)]);
+    for (const downloaded of downloads) {
+      assert.equal(downloaded.statusCode,200);
+      assert.equal(downloaded.headers['content-type'],'application/octet-stream');
+      assert.equal(downloaded.headers['cache-control'],'no-store');
+      assert.match(downloaded.headers['content-disposition'],/^attachment;/);
+      assert.match(downloaded.headers['content-disposition'],/anota%C3%A7%C3%A3o.html/);
+      assert.deepEqual(downloaded.rawPayload,contents);
+    }
+    assert.equal((await app.inject(url)).statusCode,200);
+    assert.equal((await app.inject({url,headers:{cookie:''}})).statusCode,401);
+    assert.equal(payloadReads,1);
+
+    assert.equal((await app.inject({method:'DELETE',url:'/messages/'+message.json().id})).statusCode,200);
+    assert.equal((await app.inject(url)).statusCode,404);
+    const replacement=Buffer.from('Novo anexo com o mesmo identificador');
+    assert.equal((await app.inject({method:'POST',url:'/uploads',headers,payload:replacement})).statusCode,201);
+    assert.equal((await app.inject(url)).statusCode,404);
+    assert.equal(payloadReads,1);
+    assert.equal((await app.inject({method:'POST',url:'/messages',payload:{clientId:randomUUID(),channel:'voice:geral',attachmentIds:[id]}})).statusCode,201);
+    assert.deepEqual((await app.inject(url)).rawPayload,replacement);
+    assert.equal(payloadReads,2);
   } finally {await app.close();}
 });
 test('Chat de call recebe e devolve um arquivo de 100 MB', async () => {

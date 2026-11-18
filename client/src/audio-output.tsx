@@ -6,8 +6,10 @@ import { outputDeviceRemoved } from './call-settings';
 import { MenuButton } from './menu';
 
 // O LiveKit troca a saída das faixas remotas; sons locais usam o dispositivo do sistema.
+// No iPhone (Safari e Chrome usam o WebKit) não há escolha de saída: o controle fica oculto e o sistema decide.
+const touchOnly = typeof window !== 'undefined' && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches;
 export function AudioOutputControl({icon,onUnsupported}:{icon:ReactNode;onUnsupported:()=>void}) {
-  if (!supportsAudioOutputSelection()) return <button className="button output-toggle" type="button" aria-disabled="true" title="Saída escolhida pelo sistema" aria-label="Escolha de saída indisponível neste navegador" onClick={onUnsupported}>{icon}</button>;
+  if (!supportsAudioOutputSelection()) return touchOnly ? null : <button className="button output-toggle" type="button" aria-disabled="true" title="Saída escolhida pelo sistema" aria-label="Escolha de saída indisponível neste navegador" onClick={onUnsupported}>{icon}</button>;
   return <AvailableOutput icon={icon}/>;
 }
 
@@ -53,7 +55,7 @@ function AvailableOutput({icon}:{icon:ReactNode}) {
   },[room,change]);
   const choices=devices.filter(device=>device.deviceId && device.deviceId!=='default');
   return <div className="output-control">
-    <MenuButton label="Escolher saída de áudio" className="button output-toggle output-menu-trigger" items={[
+    <MenuButton label="Escolher saída de áudio" className="button output-toggle output-menu-trigger" menuClassName="output-device-menu" items={[
       {key:'default',label:(activeDeviceId==='default'?'✓ ':'')+'Padrão do sistema',disabled:busy,onSelect:()=>void change('default')},
       ...(activeDeviceId && activeDeviceId!=='default' && !choices.some(device=>device.deviceId===activeDeviceId) ? [{key:activeDeviceId,label:'✓ Saída selecionada (verificando…)',disabled:true,onSelect:()=>{}}] : []),
       ...choices.map((device,index)=>({key:device.deviceId,label:(activeDeviceId===device.deviceId?'✓ ':'')+(device.label || 'Saída de áudio '+(index+1)),disabled:busy,onSelect:()=>void change(device.deviceId)}))

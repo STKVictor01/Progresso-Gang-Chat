@@ -14,7 +14,7 @@ import { createMediaCache } from './media-cache.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 31;
+export const HEALTH_VERSION = 32;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -267,14 +267,14 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const {id}=request.params;
     if(!UUID.test(id)) return reply.code(404).send({error:'Imagem não encontrada.'});
     const filter='a.id=? AND (EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id=a.id) OR EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id=a.id'+(appearance?' OR p.banner_id=a.id':'')+'))';
-    const media=await db.prepare('SELECT a.mime,a.animated,a.filename,a.size,a.request_hash FROM attachments a WHERE '+filter).get(id);
+    const media=await db.prepare('SELECT a.mime,a.animated,a.filename,a.size,a.request_hash,a.created_at FROM attachments a WHERE '+filter).get(id);
     if(!media)return reply.code(404).send({error:'Imagem não encontrada.'});
     if(media.size>MAX_UPLOAD_BYTES){
       if(largeDownloads>=2)return reply.code(429).send({error:'Muitos downloads em andamento. Tente novamente em instantes.'});
       largeDownloads++;reply.raw.once('close',()=>{largeDownloads--;});
     }
-    const cacheable=media.mime.startsWith('image/') && media.size<=MAX_UPLOAD_BYTES;
-    const cacheKey=id+':'+media.request_hash;
+    const cacheable=media.size<=MAX_UPLOAD_BYTES;
+    const cacheKey=id+':'+media.created_at+':'+media.request_hash;
     const variant=request.query.thumb==='1' && media.mime.startsWith('image/') ? 'thumb' : request.query.still==='1' && media.animated ? 'still' : 'original';
     const variantKey=cacheKey+':'+variant;
     const mime=variant==='thumb'?'image/webp':variant==='still'?'image/png':media.mime;
@@ -284,13 +284,13 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       if(!body){
         let pending=cacheable ? mediaReads.get(cacheKey) : undefined;
         if(!pending){
-          pending=db.prepare('SELECT a.data FROM attachments a WHERE '+filter).get(id);
+          pending=db.prepare('SELECT a.data FROM attachments a WHERE '+filter+' AND a.request_hash=? AND a.created_at=?').get(id,media.request_hash,media.created_at);
           if(cacheable && mediaReads.size<256)mediaReads.set(cacheKey,pending);
         }
         let result;
         try{result=await pending;}finally{if(mediaReads.get(cacheKey)===pending)mediaReads.delete(cacheKey);}
         if(!result)return reply.code(404).send({error:'Imagem não encontrada.'});
-        body=Buffer.from(result.data);
+        body=Buffer.isBuffer(result.data) ? result.data : Buffer.from(result.data);
         if(cacheable)mediaCache.set(cacheKey+':original',body);
       }
       if(variant==='thumb')body=await sharp(body,{limitInputPixels:MAX_PIXELS}).resize({width:340,height:120,fit:'inside',withoutEnlargement:true}).webp({quality:75}).toBuffer();

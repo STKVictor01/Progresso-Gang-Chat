@@ -18,11 +18,11 @@
   --text-2: #bfb1b5;
   --muted: #ab9da2;
   /* Cores da identidade. */
-  --accent: #a95b61;          /* vermelho pastel: seleção e ações principais */
-  --accent-hover: #b6686e;
-  --accent-soft: #3a2a31;     /* fundo de item selecionado */
-  --accent-line: #6c4950;
-  --terracotta: #cb8883;      /* detalhes geométricos e ícones ativos */
+  --accent: #b72e2a;          /* vermelho principal inspirado no logotipo */
+  --accent-hover: #c63832;
+  --accent-soft: #402628;     /* fundo de item selecionado */
+  --accent-line: #80403f;
+  --terracotta: #e3756d;      /* detalhes geométricos e ícones ativos */
   --rose: #d5a49c;            /* destaques secundários e foco */
   --mauve: #b7a4b9;           /* destaques secundários */
   /* Cores semânticas. */

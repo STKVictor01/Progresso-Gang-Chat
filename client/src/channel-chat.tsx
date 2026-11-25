@@ -11,7 +11,7 @@ import { GifPicker } from './gif-picker';
 import type { GifResult } from './gif-picker';
 import { gifId, gifMessage } from './giphy';
 import { LinkCard } from './link-card';
-import { messageLinks } from './message-links';
+import { formattedPaste, messageLinks } from './message-links';
 import { chatPollDelay } from './polling';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
@@ -218,7 +218,19 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     }
     setError([...new Set(errors)].join(' ')); setFiles(previous=>[...previous,...accepted]);
   }
-  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) { const files=Array.from(event.clipboardData.files); if(files.length){event.preventDefault();addFiles(files);} }
+  function pasted(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files=Array.from(event.clipboardData.files);
+    if(files.length){event.preventDefault();addFiles(files);return;}
+    const input=event.currentTarget;
+    const rich=formattedPaste(event.clipboardData.getData('text/html'),event.clipboardData.getData('text/plain'));
+    if(!rich)return;
+    const {selectionStart:start,selectionEnd:end}=input;
+    const next=input.value.slice(0,start)+rich+input.value.slice(end);
+    if(next.length>input.maxLength)return;
+    event.preventDefault();
+    setDraft(next);setCaret(start+rich.length);setDismissedAt(-1);setSuggestionIndex(0);
+    requestAnimationFrame(()=>input.setSelectionRange(start+rich.length,start+rich.length));
+  }
   function removeFile(id:string) { const item=files.find(file=>file.id===id);if(item?.preview)URL.revokeObjectURL(item.preview);uploaded.current.delete(id);setFiles(previous=>previous.filter(file=>file.id!==id)); }
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;

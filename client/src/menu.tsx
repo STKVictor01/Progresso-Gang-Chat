@@ -4,17 +4,19 @@ import { createPortal } from 'react-dom';
 
 // Larguras de computador (o celular mantém a organização própria).
 // eslint-disable-next-line react-refresh/only-export-components
-export function useIsDesktop() {
-  const query = '(min-width: 768px)';
+export function useMediaQuery(query:string) {
   const [matches,setMatches] = useState(() => typeof window === 'undefined' || window.matchMedia(query).matches);
   useEffect(() => {
     const media = window.matchMedia(query);
     const changed = () => setMatches(media.matches);
     media.addEventListener('change',changed);
     return () => media.removeEventListener('change',changed);
-  }, []);
+  }, [query]);
   return matches;
 }
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useIsDesktop() { return useMediaQuery('(min-width: 768px)'); }
 
 export type MenuItem = {label:string; onSelect:()=>void; disabled?:boolean; danger?:boolean; hidden?:boolean; key?:string};
 

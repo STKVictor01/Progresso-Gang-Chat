@@ -11,6 +11,7 @@ import { useCallPreferences } from './call-preferences';
 import { microphoneOptions } from './call-settings';
 import { MediaFocusStage } from './media-focus';
 import { ChannelChat } from './channel-chat';
+import { useMediaQuery } from './menu';
 import { AccountGate, AdminPanel, useAccount } from './accounts';
 import { api } from './api';
 import { Soundboard } from './soundboard';
@@ -182,7 +183,8 @@ function PublicChat() { const {name,view,selectedText}=useNavigation(); const {t
 function VoiceControls() {
   const preferences = useCallPreferences();
   const navigation = useNavigation();
-  const [moreControls, setMoreControls] = useState(false);
+  const mobile = useMediaQuery('(max-width: 767px), (pointer: coarse) and (max-height: 500px) and (max-width: 1000px)');
+  const sheet = useRef<HTMLDialogElement>(null);
   const { isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const audioShares = useTracks([Track.Source.ScreenShareAudio], { onlySubscribed: false });
   // Qualidade da transmissão escolhida por quem compartilha (resolução, quadros por segundo e bitrate).
@@ -191,7 +193,49 @@ function VoiceControls() {
   const localShareHasAudio = audioShares.some(t => t.participant.isLocal && !t.publication.isMuted);
   const firefox = /\bFirefox\//.test(navigator.userAgent);
   const deviceError = () => navigation.setError('Confira as permissões de câmera, microfone ou transmissão do navegador e tente novamente.');
-  return <><div className={"call-controls"+(moreControls?" mobile-controls-expanded":"")} role="toolbar" aria-label="Controles da chamada" onKeyDown={event=>{if(event.key==='Escape'&&moreControls){setMoreControls(false);event.currentTarget.querySelector<HTMLButtonElement>('.call-more-toggle')?.focus();}}}><div className="control-group" role="group" aria-label="Comunicação"><div className="media-control"><TrackToggle source={Track.Source.Microphone} disabled={preferences.deafened || preferences.deafenBusy} captureOptions={microphoneOptions()} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} aria-label={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} /><MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone" /></div><div className="media-control headphone-control"><button className="button deafen-toggle" aria-pressed={preferences.deafened} disabled={preferences.deafenBusy} title={preferences.deafened ? "Voltar a ouvir a call" : "Silenciar toda a call"} aria-label={preferences.deafened ? "Voltar a ouvir a call" : "Silenciar toda a call e o microfone"} onClick={() => void preferences.toggleDeafen()}><Icon name="headphones" />{preferences.deafened && <svg className="deafen-slash" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18" /></svg>}</button><AudioOutputControl icon={<Icon name="chevron" size={16}/>} onUnsupported={() => navigation.setError('Seu navegador não permite escolher a saída de áudio aqui. Troque o dispositivo nas configurações de som do sistema.')} /></div><span className="sr-only" role="status">{preferences.deafenError || (preferences.deafened ? "Call silenciada. O microfone permanecerá desligado ao voltar a ouvir." : "")}</span><button className="button call-more-toggle" type="button" aria-expanded={moreControls} onClick={()=>setMoreControls(!moreControls)}>{moreControls?'Menos opções':'Mais opções'}</button></div><div className="control-group" role="group" aria-label="Transmissão"><div className="media-control"><TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} aria-label={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} /><MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera" /></div>{typeof navigator !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices && <div className="media-control share-control"><TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false, ...sharePlanned.capture }} publishOptions={{ screenShareEncoding: sharePlanned.encoding, screenShareSimulcastLayers: sharePlanned.layers.map(layer => new VideoPreset(layer.width, layer.height, layer.maxBitrate, layer.maxFramerate)), degradationPreference: sharePlanned.degradationPreference, videoCodec: sharePlanned.videoCodec }} onDeviceError={deviceError} title={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} aria-label={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} /><ScreenShareQualityControl quality={shareQuality} onChange={setShareQuality} sharing={isScreenShareEnabled} /></div>}</div><div className="control-group" role="group" aria-label="Recursos"><button className="button chat-toggle" title="Chat da call" aria-label="Chat da call" aria-expanded={navigation.callChatOpen && navigation.view === "voice"} onClick={() => { if(navigation.activeVoice){ navigation.selectVoice(navigation.activeVoice); navigation.setCallChatOpen(navigation.view !== "voice" || !navigation.callChatOpen); } }}><Icon name="chat" /></button><NoiseSuppressionControl /><VoiceEffectControl /><KeepScreenAwake />{navigation.activeVoice && <><MusicControl key={navigation.activeVoice} channel={navigation.activeVoice} /><Soundboard key={navigation.activeVoice} channel={navigation.activeVoice} /></>}</div></div>{isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">{firefox ? 'O Firefox está compartilhando a imagem, mas não captura o som da tela. Para transmitir som, abra o chat no Chrome ou Edge e compartilhe uma aba com áudio.' : 'Esta transmissão está sem áudio. Compartilhe novamente e marque a opção de áudio no seletor do navegador, se disponível.'}</p>}</>;
+  const microphone = <TrackToggle source={Track.Source.Microphone} disabled={preferences.deafened || preferences.deafenBusy} captureOptions={microphoneOptions()} onDeviceError={deviceError} title={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} aria-label={isMicrophoneEnabled ? 'Desligar microfone' : 'Ligar microfone'} />;
+  const headphones = <button className="button deafen-toggle" aria-pressed={preferences.deafened} disabled={preferences.deafenBusy} title={preferences.deafened ? "Voltar a ouvir a call" : "Silenciar toda a call"} aria-label={preferences.deafened ? "Voltar a ouvir a call" : "Silenciar toda a call e o microfone"} onClick={() => void preferences.toggleDeafen()}><Icon name="headphones" />{preferences.deafened && <svg className="deafen-slash" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18" /></svg>}</button>;
+  const camera = <TrackToggle source={Track.Source.Camera} onDeviceError={deviceError} title={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} aria-label={isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'} />;
+  const input = <MediaDeviceMenu kind="audioinput" aria-label="Escolher microfone">{mobile ? 'Microfone' : undefined}</MediaDeviceMenu>;
+  const videoInput = <MediaDeviceMenu kind="videoinput" aria-label="Escolher câmera">{mobile ? 'Câmera' : undefined}</MediaDeviceMenu>;
+  const output = <AudioOutputControl icon={<Icon name="chevron" size={16}/>} onUnsupported={() => navigation.setError('Seu navegador não permite escolher a saída de áudio aqui. Troque o dispositivo nas configurações de som do sistema.')} />;
+  const share = typeof navigator.mediaDevices?.getDisplayMedia === 'function' && <div className="media-control share-control">
+    <TrackToggle source={Track.Source.ScreenShare} captureOptions={{ audio: true, systemAudio: "include", suppressLocalAudioPlayback: false, ...sharePlanned.capture }} publishOptions={{ screenShareEncoding: sharePlanned.encoding, screenShareSimulcastLayers: sharePlanned.layers.map(layer => new VideoPreset(layer.width, layer.height, layer.maxBitrate, layer.maxFramerate)), degradationPreference: sharePlanned.degradationPreference, videoCodec: sharePlanned.videoCodec }} onDeviceError={deviceError} title={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} aria-label={isScreenShareEnabled ? 'Parar transmissão' : 'Compartilhar tela'} />
+    <ScreenShareQualityControl quality={shareQuality} onChange={setShareQuality} sharing={isScreenShareEnabled} />
+  </div>;
+  const resources = <>
+    <button className="button chat-toggle" title="Chat da call" aria-label="Chat da call" aria-expanded={navigation.callChatOpen && navigation.view === "voice"} onClick={() => { if(navigation.activeVoice){ sheet.current?.close(); navigation.selectVoice(navigation.activeVoice); navigation.setCallChatOpen(navigation.view !== "voice" || !navigation.callChatOpen); } }}><Icon name="chat" /></button>
+    <NoiseSuppressionControl /><VoiceEffectControl /><KeepScreenAwake />
+    {navigation.activeVoice && <><MusicControl channel={navigation.activeVoice} key={'music:'+navigation.activeVoice}/><Soundboard channel={navigation.activeVoice} key={'sounds:'+navigation.activeVoice}/></>}
+  </>;
+  return <>
+    {mobile ? <>
+      <div className="phone-call-controls" role="group" aria-label="Controles da chamada">
+        {microphone}{headphones}{camera}
+        <button className="button phone-more" type="button" aria-label="Mais opções da call" aria-haspopup="dialog" onClick={()=>sheet.current?.showModal()}>
+          <svg width="20" height="6" viewBox="0 0 20 6" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="2"/><circle cx="10" cy="3" r="2"/><circle cx="17" cy="3" r="2"/></svg>
+          Mais
+        </button>
+      </div>
+      <dialog className="admin-dialog call-options-sheet" ref={sheet} aria-label="Opções da call">
+        <header><h2>Opções da call</h2><button className="button subtle" type="button" onClick={()=>sheet.current?.close()} aria-label="Fechar opções da call">Fechar</button></header>
+        <div className="sheet-resources">{resources}{share}</div>
+        <h3>Dispositivos</h3>
+        <div className="sheet-devices"><div>{input}</div><div>{videoInput}</div>{output}</div>
+      </dialog>
+    </> : <div className="call-controls" role="toolbar" aria-label="Controles da chamada">
+      <div className="control-group" role="group" aria-label="Comunicação">
+        <div className="media-control">{microphone}{input}</div>
+        <div className="media-control headphone-control">{headphones}{output}</div>
+      </div>
+      <div className="control-group" role="group" aria-label="Transmissão">
+        <div className="media-control">{camera}{videoInput}</div>{share}
+      </div>
+      <div className="control-group" role="group" aria-label="Recursos">{resources}</div>
+    </div>}
+    <span className="sr-only" role="status">{preferences.deafenError || (preferences.deafened ? "Call silenciada. O microfone permanecerá desligado ao voltar a ouvir." : "")}</span>
+    {isScreenShareEnabled && !localShareHasAudio && <p className="share-audio-notice" role="status">{firefox ? 'O Firefox está compartilhando a imagem, mas não captura o som da tela. Para transmitir som, abra o chat no Chrome ou Edge e compartilhe uma aba com áudio.' : 'Esta transmissão está sem áudio. Compartilhe novamente e marque a opção de áudio no seletor do navegador, se disponível.'}</p>}
+  </>;
 }
 // Sair fica no cabeçalho do bloco da call, junto do nome do canal.
 function LeaveCallButton() {

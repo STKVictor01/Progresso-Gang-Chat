@@ -71,7 +71,18 @@ export function PresenceProvider({children}:{children:ReactNode}) {
     return () => { active = false; clearInterval(timer); };
   }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses,appearance}}>{children}{profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}} onCancel={()=>setSelected(null)} onClose={()=>setSelected(null)} aria-labelledby="profile-dialog-name"><ProfileCard profile={profile} headingId="profile-dialog-name" actions={<button className="button subtle profile-close" onClick={()=>setSelected(null)} aria-label="Fechar perfil">×</button>}>{profile.id === user.id ? <><ProfileEditor variant="button"/><OwnDescription key={profile.description} profile={profile} onSaved={refresh} /></> : undefined}</ProfileCard></dialog>}</PresenceContext.Provider>;
+  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses,appearance}}>
+    {children}
+    {profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}}
+      onCancel={event=>{if(event.target===event.currentTarget)setSelected(null);}} onClose={event=>{if(event.target===event.currentTarget)setSelected(null);}} aria-labelledby="profile-dialog-name">
+      <ProfileCard profile={profile} headingId="profile-dialog-name" actions={<>
+        {profile.id===user.id && <ProfileEditor variant="button"/>}
+        <button className="button subtle profile-close" onClick={()=>setSelected(null)} aria-label="Fechar perfil">×</button>
+      </>}>
+        {profile.id===user.id ? <OwnDescription key={profile.description} profile={profile} onSaved={refresh} /> : undefined}
+      </ProfileCard>
+    </dialog>}
+  </PresenceContext.Provider>;
 }
 function Avatar({person,className='member-avatar'}:{person:{name:string;avatarUrl:string|null};className?:string}) {
   return person.avatarUrl ? <img className={className} src={person.avatarUrl} alt=""/> : <span className={className}>{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>;
@@ -88,7 +99,7 @@ function PencilIcon() {
 // Um único painel reúne foto, apelido, descrição e aparência. No computador, a conta fica no menu do avatar.
 export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'card'|'avatar'|'button'}) {
   const {user,renameSelf,authMode,logout} = useAccount();
-  const {profiles,refresh,nameColors,statuses,appearance} = usePresence();
+  const {profiles,refresh,showProfile,nameColors,statuses,appearance} = usePresence();
   const [statusText,setStatusText] = useState('');
   const [editing,setEditing] = useState(false);
   const [color,setColor] = useState('');
@@ -217,13 +228,11 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
     {panel==='admin' && <AdminPanel initialTab={adminTab} onClose={() => setPanel(null)}/>}
   </>;
   const trigger = variant==='avatar'
-    ? <>{user.role==='admin' && <button type="button" className="admin-shortcut" aria-label="Administração da comunidade" title="Administração da comunidade" onClick={() => {setAdminTab('site');setPanel('admin');}}><GearIcon/><span>Administração</span></button>}<MenuButton label={'Menu da conta'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' pedido novo':' pedidos novos'):'')} className="account-options account-menu-button" items={[{label:'Administração da comunidade',onSelect:() => {setAdminTab('site');setPanel('admin');},hidden:user.role!=='admin'},{label:'Correios'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' novo':' novos'):''),onSelect:() => {setAdminTab('inbox');setPanel('admin');},hidden:user.role!=='admin'},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><span aria-hidden="true">•••</span>{unreadRequests>0&&<span className="account-unread" aria-hidden="true">{unreadRequests>99?'99+':unreadRequests}</span>}</MenuButton>
-        <button type="button" onClick={open} disabled={!own} className="header-profile-edit" aria-label="Editar perfil" title="Editar perfil">
-          <Avatar person={me}/><span className="avatar-pencil"><PencilIcon/></span><span className="profile-action-label">Editar perfil</span>
-        </button>
+    ? <>{user.role==='admin' && <button type="button" className="admin-shortcut" aria-label="Administração da comunidade" title="Administração da comunidade" onClick={() => {setAdminTab('site');setPanel('admin');}}><GearIcon/><span>Administração</span></button>}<MenuButton label={'Menu da conta'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' pedido novo':' pedidos novos'):'')} className="header-avatar-button account-menu-button" items={[{label:'Meu perfil',onSelect:()=>showProfile(user.id),disabled:!own},{label:'Administração da comunidade',onSelect:() => {setAdminTab('site');setPanel('admin');},hidden:user.role!=='admin'},{label:'Correios'+(unreadRequests?' · '+unreadRequests+(unreadRequests===1?' novo':' novos'):''),onSelect:() => {setAdminTab('inbox');setPanel('admin');},hidden:user.role!=='admin'},{label:'Configurações',onSelect:() => setPanel('settings')},{label:'Sair da conta',onSelect:() => void leave(),danger:true}]}><Avatar person={me}/>{unreadRequests>0&&<span className="account-unread" aria-hidden="true">{unreadRequests>99?'99+':unreadRequests}</span>}</MenuButton>
+
         {accountError && <div className="account-menu-error" role="alert"><span>{accountError}</span><button type="button" className="icon-button" onClick={() => setAccountError('')} aria-label="Fechar aviso">×</button></div>}</>
     : variant==='button' ? <button type="button" className="button subtle profile-card-edit" disabled={!own} onClick={open}><PencilIcon/>Editar perfil</button>
-    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={open} aria-label="Meu perfil"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil"><GearIcon/></span></button>;
+    : <button className="identity-card profile-edit-trigger" disabled={!own} onClick={()=>showProfile(user.id)} aria-label="Meu perfil"><Avatar person={me}/><span><strong style={own?.nameColor ? {color:own.nameColor} : undefined}>{user.name}</strong><small className={own?.status ? 'custom-status' : undefined}>{own?.status || (statuses && status === 'Online' ? 'Definir um status' : status)}</small></span><span className="profile-edit-hint" title="Meu perfil"><GearIcon/></span></button>;
 
   const hasAvatar = Boolean(shown.avatarUrl), hasBanner = Boolean(shownBanner);
   const editMenu = <MenuButton label="Editar foto e banner" className="profile-media-menu" items={[

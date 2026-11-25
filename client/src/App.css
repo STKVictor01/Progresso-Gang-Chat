@@ -403,7 +403,7 @@ input::placeholder { color: var(--muted); }
 .account-note{padding-top:20px;border-top:1px solid var(--line-strong);margin-top:24px}.account-loading{min-height:100dvh;display:grid;place-items:center}
 .account-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0}.account-actions .button{min-height:44px;padding:8px;font-size:13px}
 .page-header{gap:12px}.community-sidebar{overflow-y:auto}
-.account-page{--surface:var(--surface);--text:var(--text);--red:var(--accent);--muted:var(--muted);--line:var(--line);--raised:var(--panel);font-family:'Inter Variable','Segoe UI',sans-serif}
+.account-page{--red:var(--accent);--raised:var(--panel);font-family:'Inter Variable','Segoe UI',sans-serif}
 .admin-dialog{background:var(--panel);color:var(--text);border:1px solid var(--line-strong);border-radius:8px;width:min(720px,calc(100vw - 24px));max-height:90dvh;padding:24px;overflow:auto}
 .admin-dialog::backdrop{background:#000b}.admin-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px}.admin-dialog h2{font-size:28px;margin:0}
 .admin-dialog label{display:flex;flex-direction:column;gap:8px}.admin-dialog p{line-height:1.6;color:var(--text-2)}.admin-dialog .button{min-height:44px}
@@ -438,7 +438,7 @@ input::placeholder { color: var(--muted); }
 .voice-member-trigger { flex:1; min-width:0; min-height:44px; text-align:left; color:inherit; background:transparent; border:0; border-radius:4px; cursor:pointer; }
 .voice-member-trigger:hover { background:var(--raised); }
 .voice-member-trigger:focus-visible { outline:2px solid var(--gold); }
-.voice-audio-popover { --text:var(--text); --muted:var(--muted); --raised:var(--panel); --line:var(--line); --gold:var(--rose); --red:var(--accent); --red-light:var(--terracotta); position:fixed; inset:auto; margin:0; width:min(280px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:14px; color:var(--text); background:var(--raised); border:1px solid var(--line-strong); border-radius:6px; box-shadow:0 12px 35px #000a; font-family:'Inter Variable','Segoe UI',sans-serif; }
+.voice-audio-popover { --raised:var(--panel); --gold:var(--rose); --red:var(--accent); --red-light:var(--terracotta); position:fixed; inset:auto; margin:0; width:min(280px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:14px; color:var(--text); background:var(--raised); border:1px solid var(--line-strong); border-radius:6px; box-shadow:0 12px 35px #000a; font-family:'Inter Variable','Segoe UI',sans-serif; }
 .voice-audio-popover .participant-audio-controls { margin-top:8px; padding:0; border:0; }
 .voice-audio-popover .participant-audio-controls label { line-height:1.4; }
 .voice-remove-button { display:block; width:100%; margin-top:12px; padding:10px; text-align:left; color:var(--red-light); background:transparent; border:0; border-top:1px solid var(--line); border-radius:4px; cursor:pointer; }
@@ -1655,8 +1655,8 @@ input::placeholder { color: var(--muted); }
 .voice-member-card .voice-member-actions { position:absolute; z-index:2; top:50%; right:6px; transform:translateY(-50%); padding:0; }
 .voice-member-card .quick-mute { color:var(--text); background:color-mix(in srgb,var(--surface) 82%,transparent); border-color:var(--line); }
 .voice-member-card .quick-mute.is-muted { color:var(--terracotta); background:var(--danger-soft); border-color:var(--accent-line); }
-.progresso-app .voice-dock-row .leave-button { color:#fff; background:color-mix(in srgb,var(--danger) 74%,var(--surface)); border-color:var(--danger); border-radius:10px; }
-.progresso-app .voice-dock-row .leave-button:hover { background:var(--danger); }
+.progresso-app .voice-dock-row .leave-button { color:#fff; background:var(--accent); border-color:var(--accent-hover); border-radius:10px; }
+.progresso-app .voice-dock-row .leave-button:hover { background:var(--accent-hover); }
 .progresso-app .voice-dock-row .leave-button:focus-visible { outline:2px solid var(--rose); outline-offset:2px; }
 @media(max-width:1100px) { .voice-dock-row { flex-wrap:wrap; } .voice-dock-controls { flex:1 1 auto; } }
 @media(max-width:767px) {
@@ -1719,30 +1719,55 @@ input::placeholder { color: var(--muted); }
 .community-sidebar .channel:has(.voice-channel-info) > svg { flex-shrink:0; margin-top:2px; }
 .community-sidebar .channel:has(.voice-channel-info) .voice-channel-count { align-self:center; }
 
-/* ---------- Controles da call no celular (Safari e Chrome): grade uniforme ----------
-   Linha fixa: microfone, fone e "Mais opções". Aberto: câmera e recursos em células iguais. */
-@media (max-width:767px) {
-  .voice-dock .call-controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; width:100%; }
-  .voice-dock .call-controls > .control-group { min-width:0; margin:0; }
-  .voice-dock .call-controls .control-group[aria-label="Comunicação"] { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
-  .voice-dock .call-controls .media-control { display:flex; gap:4px; width:100%; min-width:0; }
-  .voice-dock .call-controls .media-control > .lk-button:not(.lk-button-menu), .voice-dock .call-controls .deafen-toggle { flex:1 1 auto; min-width:0; }
-  .voice-dock .call-controls .media-control > .lk-button-menu, .voice-dock .call-controls .headphone-control .output-control { flex:0 0 40px; min-width:40px; }
-  .voice-dock .call-controls .call-more-toggle { width:100%; min-width:0; padding:0 8px; font-size:13px; }
-  .voice-dock .call-controls .lk-button, .voice-dock .call-controls .button { min-height:48px; }
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Transmissão"],
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Recursos"] { display:contents; }
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Transmissão"] > .media-control { grid-column:span 2; }
-  /* Com o botão de transmitir tela (Android), a câmera ocupa uma célula e as linhas fecham em 4 + 4. */
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Transmissão"]:has(> .share-control) > .media-control { grid-column:span 1; }
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Recursos"] > * { width:100%; min-width:0; max-width:none; margin:0; }
-  .voice-dock .call-controls.mobile-controls-expanded .control-group[aria-label="Recursos"] > * > .button { width:100%; }
-  .voice-dock, .voice-dock:has(.mobile-controls-expanded) { max-height:none; overflow:visible; }
-  .voice-dock .call-controls .headphone-control .output-select { width:100%; }
-  /* Os menus de microfone e câmera abrem para cima, dentro da tela (o LiveKit os posiciona para baixo). */
-  .voice-dock .call-controls .media-control { position:relative; }
-  .voice-dock .call-controls .lk-device-menu { top:auto !important; bottom:calc(100% + 6px) !important; left:0 !important; right:auto !important; z-index:30; width:max-content; min-width:100%; max-width:calc(100vw - 20px); max-height:min(50dvh,320px); overflow-y:auto; }
+/* A chamada no telefone mantém quatro controles e a saída ao alcance do polegar. */
+.voice-dock:has(.phone-call-controls) { max-height:none; overflow:visible; }
+.voice-dock-row:has(.phone-call-controls) {
+  display:grid; grid-template-columns:minmax(0,1fr) 48px; gap:6px 10px;
+  padding:6px max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
 }
+.voice-dock-row:has(.phone-call-controls) .voice-dock-label { grid-column:1/-1; min-width:0; }
+.voice-dock-row:has(.phone-call-controls) .voice-dock-status > span { display:flex; align-items:baseline; gap:8px; }
+.voice-dock-row:has(.phone-call-controls) .voice-dock-controls { order:0; }
+.voice-dock-row:has(.phone-call-controls) .leave-button-wrap { margin:0; align-self:start; }
+.voice-dock-row:has(.phone-call-controls) .leave-button { width:48px; height:48px; }
+.phone-call-controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.phone-call-controls > button {
+  display:inline-flex; align-items:center; justify-content:center; position:relative; min-width:0; min-height:48px;
+  padding:4px; color:var(--text); background:var(--raised); border:1px solid var(--line); border-radius:8px;
+}
+.phone-call-controls .phone-more { flex-direction:column; gap:4px; font-size:12px; }
+.phone-call-controls > [data-lk-enabled=true] { background:var(--accent-soft); border-color:var(--terracotta); }
+.phone-call-controls .deafen-toggle[aria-pressed=true] { color:var(--danger); background:var(--danger-soft); }
+dialog.call-options-sheet {
+  position:fixed; inset:auto 0 0; box-sizing:border-box; margin:0 auto; width:min(100%,540px);
+  max-width:100%; max-height:85dvh; padding:16px 16px max(18px,env(safe-area-inset-bottom));
+  overflow:auto; overscroll-behavior:contain; border-radius:16px 16px 0 0;
+}
+.call-options-sheet header { align-items:center; }
+.call-options-sheet h3 { margin:16px 0 8px; font-size:1rem; }
+.sheet-resources, .sheet-devices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.sheet-resources { margin-top:12px; }
+.sheet-resources .share-control { display:contents; }
+.sheet-resources > .noise-control, .sheet-resources > .screen-wake-control { display:block; width:auto; max-width:none; order:0; }
+.sheet-resources > button, .sheet-resources > :is(.noise-control,.screen-wake-control,.share-control) > button,
+.sheet-devices > button, .sheet-devices > div > button {
+  display:flex; justify-content:flex-start; align-items:center; gap:8px; width:100%; height:100%;
+  min-height:48px; padding:8px 10px; white-space:normal; text-align:left; font:inherit; font-size:13px;
+  color:var(--text); border:1px solid var(--line); border-radius:8px; background:var(--raised);
+}
+.sheet-resources > button::after, .sheet-resources > :is(.noise-control,.screen-wake-control,.share-control) > button::after,
+.sheet-devices .output-toggle::after { content:attr(aria-label); }
+.sheet-resources > .share-control > button { border-radius:8px; }
+.sheet-resources .share-quality-trigger::after { position:static; width:auto; height:auto; transform:none; background:none; border:0; }
+.sheet-resources button > svg, .sheet-devices button > svg { flex-shrink:0; }
+.sheet-resources > [aria-pressed=true], .sheet-resources > div > [aria-pressed=true] { background:var(--accent-soft); border-color:var(--terracotta); }
+.call-options-sheet .screen-wake-status:not(:empty) { display:block; position:static; padding:6px 0; background:transparent; box-shadow:none; border:0; }
+.sheet-devices > div { min-width:0; }
+.sheet-devices .lk-device-menu { position:static !important; width:100%; min-width:0; max-height:24dvh; overflow:auto; }
+.sheet-devices .lk-device-menu[style*="visibility: hidden"] { display:none; }
+.sheet-devices > div > button { height:auto; }
+.sheet-devices .lk-device-menu button { min-height:44px; white-space:normal; overflow-wrap:anywhere; }
+.phone-call-controls button:focus-visible, .call-options-sheet button:focus-visible { outline:2px solid var(--rose); outline-offset:-2px; }
 
 /* ---------- Qualidade da transmissão de tela ---------- */
 .share-quality-dialog { width:min(520px,calc(100vw - 24px)); }
@@ -1765,23 +1790,13 @@ input::placeholder { color: var(--muted); }
 .share-quality-dialog .share-quality-choice { flex-direction:row; }
 
 /* Ações claras no perfil e recuperação da conexão em qualquer tela. */
-.profile-card-edit { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; margin-bottom:14px; }
+.profile-dialog .profile-card-actions { display:flex; align-items:center; gap:8px; }
+.profile-dialog .profile-card-banner.empty { width:100%; min-height:64px; }
+.profile-card-actions .profile-card-edit { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 12px; color:#fff; background:#171418eb; border:1px solid #ffffff59; border-radius:22px; }
+.profile-card-actions .profile-card-edit:hover { background:#332a2e; }
+.profile-dialog .profile-close { min-width:44px; min-height:44px; }
 .account-connection-error .primary { min-height:48px; margin-top:20px; }
 
-/* O avatar abre o editor; os ajustes da conta ficam ao lado. */
-.header-profile-edit, .account-options {
-  display: inline-flex; align-items: center; justify-content: center; position: relative;
-  min-width: 44px; height: 44px; border: 0; border-radius: var(--radius-sm);
-  color: var(--text); background: transparent; cursor: pointer;
-}
-.header-profile-edit { gap: 8px; padding: 4px 8px 4px 4px; font-weight: 600; }
-.header-profile-edit .member-avatar { width: 34px; height: 34px; }
-.header-profile-edit .avatar-pencil {
-  position: absolute; left: 25px; bottom: 2px; display: grid; place-items: center;
-  width: 17px; height: 17px; border-radius: 50%; background: var(--accent); color: white;
-}
-.avatar-pencil svg { width: 11px; height: 11px; }
-.header-profile-edit:hover, .account-options:hover, .account-options[aria-expanded=true] { background: var(--raised); }
 .community-admin .admin-mobile-nav { display: none; }
 .admin-channels > p { margin: 0 0 12px; }
 .admin-channels fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
@@ -1806,12 +1821,7 @@ input::placeholder { color: var(--muted); }
 .account-actions { width: 100%; }
 .account-actions summary { cursor: pointer; min-height: 44px; align-content: center; color: var(--text); }
 .account-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
-.community-admin :is(.channel-edit,.order-grip,.group-add,summary,.back-to-channels):focus-visible,
-.header-actions :is(.header-profile-edit,.account-options):focus-visible { outline: 2px solid var(--rose); outline-offset: -2px; }
-@media (max-width: 1023px) {
-  .profile-action-label { display: none; }
-  .header-profile-edit { padding: 4px; }
-}
+.community-admin :is(.channel-edit,.order-grip,.group-add,summary,.back-to-channels):focus-visible { outline: 2px solid var(--rose); outline-offset: -2px; }
 @media (max-width: 767px) {
   .community-admin .admin-tabs { display: none; }
   .community-admin .admin-mobile-nav { display: flex; margin: 12px 0 16px; }

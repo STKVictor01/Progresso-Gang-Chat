@@ -1,41 +1,41 @@
 /* ==========================================================================
-   Tokens do Progresso Gang (V8.1, pastel brutalista).
+   Tokens do Progresso Gang: carvão e vermelho do emblema.
    Todas as telas usam estas variáveis; evite cores soltas nos componentes.
    ========================================================================== */
 :root {
   /* Superfícies em grafite quente. */
-  --bg: #19171b;
-  --bg-2: #211e23;
-  --surface: #211e23;
-  --panel: #282329;
-  --raised: #342b32;
-  --raised-hover: #3d3239;
-  --line: #463c43;
-  --line-soft: #362f35;
-  --line-strong: #5f525a;
+  --bg: #101011;
+  --bg-2: #171718;
+  --surface: #171718;
+  --panel: #1e1e20;
+  --raised: #29282a;
+  --raised-hover: #353234;
+  --line: #413d3e;
+  --line-soft: #302d2e;
+  --line-strong: #635c5d;
   /* Texto. */
-  --text: #f0e8e4;
-  --text-2: #bfb1b5;
-  --muted: #ab9da2;
+  --text: #f5f1ee;
+  --text-2: #cbc2c1;
+  --muted: #aaa2a1;
   /* Cores da identidade. */
-  --accent: #b72e2a;          /* vermelho principal inspirado no logotipo */
-  --accent-hover: #c63832;
-  --accent-soft: #402628;     /* fundo de item selecionado */
-  --accent-line: #80403f;
-  --terracotta: #e3756d;      /* detalhes geométricos e ícones ativos */
-  --rose: #d5a49c;            /* destaques secundários e foco */
-  --mauve: #b7a4b9;           /* destaques secundários */
+  --accent: #bd332d;          /* vermelho principal inspirado no logotipo */
+  --accent-hover: #c83730;
+  --accent-soft: #351d1e;     /* fundo de item selecionado */
+  --accent-line: #8c403c;
+  --terracotta: #f27368;      /* detalhes geométricos e ícones ativos */
+  --rose: #ff9285;            /* destaques secundários e foco */
+  --mauve: #bbaaab;           /* destaques secundários */
   /* Cores semânticas. */
-  --danger: #e2797d;
-  --danger-soft: #3f2629;
-  --danger-line: #7d4549;
+  --danger: #ff8076;
+  --danger-soft: #371d20;
+  --danger-line: #923b38;
   --success: #8fc08a;
   --warning: #e6bd7e;
   --online: #7fbf7a;
-  --notify: #e0646b;
+  --notify: #f16e64;
   /* Logotipo oficial: cor original preservada. */
   --brand-logo: #c6352c;
-  --brand-logo-ground: #211e23;
+  --brand-logo-ground: #171718;
   --brand-logo-star: #c6352c;
   /* Nomes antigos continuam valendo, apontando para a nova paleta. */
   --red: var(--accent);
@@ -48,7 +48,7 @@
   --radius-lg: 14px;
   --shadow-soft: 0 4px 14px #0000004d;
   --shadow: 0 14px 36px #00000066;
-  --overlay: #0b090cb8;
+  --overlay: #080809bf;
   --ease: 200ms cubic-bezier(.2,.7,.2,1);
   /* Escala tipográfica em rem (respeita o tamanho de fonte do navegador). */
   --font-xs: .75rem;      /* 12px: metadados */

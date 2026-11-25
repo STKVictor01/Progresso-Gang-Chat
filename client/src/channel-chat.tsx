@@ -1,7 +1,7 @@
 import { api } from './api';
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ClipboardEvent, FormEvent } from 'react';
+import type { ClipboardEvent, FormEvent, ReactNode } from 'react';
 import { usePresence } from './presence';
 import { useAccount } from './accounts';
 import { hasMention, mentionQuery, mentionRanges } from './mentions';
@@ -10,11 +10,13 @@ import { continuesGroup } from './chat-format';
 import { GifPicker } from './gif-picker';
 import type { GifResult } from './gif-picker';
 import { gifId, gifMessage } from './giphy';
+import { LinkCard } from './link-card';
+import { messageLinks } from './message-links';
 import { chatPollDelay } from './polling';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type Reply = {id:number;name?:string;text?:string;user_id?:string|null;deleted:boolean};
-type TextMessage = { reply?:Reply|null; id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[]; pending?: 'sending' | 'failed'; clientId?: string };
+type TextMessage = { linkPreview?:boolean; reply?:Reply|null; id: number; name: string; text: string; timestamp: number; channel: string; user_id: string | null; canDelete: boolean; attachments?: Attachment[]; pending?: 'sending' | 'failed'; clientId?: string };
 // Mensagens confirmadas seguem a ordem do servidor; as que ainda estão saindo ficam no fim.
 function ordered(list: TextMessage[]) { const real=list.filter(message=>!message.pending).sort((a,b)=>a.id-b.id); return [...real,...list.filter(message=>message.pending)]; }
 const now = () => Date.now();
@@ -24,7 +26,7 @@ function absorb(previous: TextMessage[], incoming: TextMessage[], userId: string
   let rest = previous;
   for (const message of incoming) {
     if (message.user_id !== userId || message.attachments?.length) continue;
-    const index = rest.findIndex(item => item.pending === 'sending' && item.text === message.text && (item.reply?.id ?? null) === (message.reply?.id ?? null));
+    const index = rest.findIndex(item => item.pending === 'sending' && item.text === message.text && !!item.linkPreview === !!message.linkPreview && (item.reply?.id ?? null) === (message.reply?.id ?? null));
     if (index >= 0) rest = rest.filter((_, position) => position !== index);
   }
   return rest;
@@ -60,6 +62,13 @@ function FileAttachment({attachment}:{attachment:Attachment}) {
   const size=attachment.size >= MB ? (attachment.size/MB).toFixed(1)+' MB' : Math.max(1,Math.ceil(attachment.size/1024))+' KB';
   return <a className="file-attachment" href={attachment.url} download={filename} aria-label={'Baixar '+filename}><span className="file-attachment-icon" aria-hidden="true"><ClipIcon /></span><span><strong>{filename}</strong><small>{size} · Baixar arquivo</small></span><span aria-hidden="true">↓</span></a>;
 }
+function LinkedMessage({text,showCard,mark}:{text:string;showCard?:boolean;mark:(value:string)=>ReactNode}) {
+  const links=useMemo(()=>messageLinks(text),[text]);
+  return <><p>{links.map((link,index)=>{
+    const before=text.slice(index ? links[index-1].end : 0,link.start);
+    return <Fragment key={link.start}>{mark(before)}<a className="message-link" href={link.href} target="_blank" rel="noopener noreferrer" title={link.href}>{link.label}</a></Fragment>;
+  })}{mark(text.slice(links.at(-1)?.end ?? 0))}</p>{showCard && links[0] && <LinkCard key={links[0].href} href={links[0].href}/>}</>;
+}
 function GiphyMessage({id,reducedMotion}:{id:string;reducedMotion:boolean}) {
   const [playing,setPlaying]=useState(!reducedMotion);
   return <div className="giphy-message">{playing ? <iframe src={'https://giphy.com/embed/'+id} title="GIF do GIPHY" loading="lazy" referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups" /> : <button className="button subtle" onClick={()=>setPlaying(true)}>Reproduzir GIF do GIPHY</button>}</div>;
@@ -79,6 +88,9 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const [suggestionIndex,setSuggestionIndex] = useState(0);
   const [dismissedAt,setDismissedAt] = useState(-1);
   const [draft, setDraft] = useState(() => { try { return sessionStorage.getItem('pg-draft-'+channel) || ''; } catch { return ''; } });
+  const firstLink=useMemo(()=>messageLinks(draft)[0]?.href,[draft]);
+  const [previewHref,setPreviewHref]=useState('');
+  const linkPreview=Boolean(firstLink && previewHref===firstLink);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [replyTo,setReplyTo] = useState<TextMessage|null>(null);
   const [sending, setSending] = useState(false);
@@ -178,7 +190,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   async function deliver(temp: TextMessage) {
     setMessages(previous => previous.map(message => message.clientId === temp.clientId ? {...message, pending:'sending'} : message));
     try {
-      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text:temp.text,clientId:temp.clientId,attachmentIds:[],replyTo:temp.reply?.id??null}),signal:AbortSignal.timeout(15000)});
+      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text:temp.text,linkPreview:!!temp.linkPreview,clientId:temp.clientId,attachmentIds:[],replyTo:temp.reply?.id??null}),signal:AbortSignal.timeout(15000)});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
       setMessages(previous => ordered(dedupe([...previous.filter(message => message.clientId !== temp.clientId), sent])));
@@ -211,12 +223,12 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   async function send(event: FormEvent) {
     event.preventDefault();const text=draft.trim();if((!text&&!files.length)||sending)return;
     if(!files.length){
-      const temp=pendingMessage(tempId.current--,user,channel,text,replyTo);
-      setMessages(previous=>[...previous,temp]);setDraft('');setReplyTo(null);setError('');atBottom.current=true;
+      const temp={...pendingMessage(tempId.current--,user,channel,text,replyTo),linkPreview};
+      setMessages(previous=>[...previous,temp]);setDraft('');setPreviewHref('');setReplyTo(null);setError('');atBottom.current=true;
       void deliver(temp);return;
     }
     setSending(true);setError('');const controller=new AbortController();sendController.current=controller;
-    const signature=JSON.stringify({channel,text,replyTo:replyTo?.id??null,ids:files.map(item=>item.id)});
+    const signature=JSON.stringify({channel,text,linkPreview,replyTo:replyTo?.id??null,ids:files.map(item=>item.id)});
     if(pending.current?.signature!==signature)pending.current={signature,id:crypto.randomUUID()};
     try{
       const attachmentIds:string[]=[];
@@ -230,11 +242,11 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
         attachmentIds.push(item.id);
       }
       setProgress('Enviando mensagem…');
-      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,clientId:pending.current.id,attachmentIds,replyTo:replyTo?.id??null}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
+      const response=await api('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,channel,text,linkPreview,clientId:pending.current.id,attachmentIds,replyTo:replyTo?.id??null}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
       if(!response.ok)throw Error(await requestError(response,'Não foi possível enviar. Tente novamente.'));
       const sent=await response.json() as TextMessage;
       setMessages(previous=>ordered(dedupe([...previous,sent])));
-      files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');setReplyTo(null);pending.current=null;atBottom.current=true;
+      files.forEach(item=>item.preview && URL.revokeObjectURL(item.preview));setFiles([]);uploaded.current.clear();setDraft('');setPreviewHref('');setReplyTo(null);pending.current=null;atBottom.current=true;
     }catch(cause){if(!controller.signal.aborted)setError(cause instanceof Error && cause.name!=='TypeError' && cause.name!=='TimeoutError' ? cause.message : 'A conexão falhou. Sua mensagem continua aqui para tentar novamente.');}
     finally{setSending(false);setProgress('');sendController.current=null;}
   }
@@ -267,14 +279,17 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
       {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(message.user_id!==user.id&&hasMention(message.text,user.name)?' mentions-me':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
-        onPointerDown={event=>{if(event.pointerType!=='touch'||message.pending)return;cancelPress();const {clientX:x,clientY:y}=event;press.current={x,y,timer:window.setTimeout(()=>{press.current=null;pressedAt.current=now();held.current={message,x:x-100,y:y+12};setHeldId(message.id);navigator.vibrate?.(12);},450)};}}
+        onPointerDown={event=>{if(event.pointerType!=='touch'||message.pending||(event.target as Element).closest('a'))return;cancelPress();const {clientX:x,clientY:y}=event;press.current={x,y,timer:window.setTimeout(()=>{press.current=null;pressedAt.current=now();held.current={message,x:x-100,y:y+12};setHeldId(message.id);navigator.vibrate?.(12);},450)};}}
         onPointerMove={event=>{const start=press.current;if(start&&Math.hypot(event.clientX-start.x,event.clientY-start.y)>10)cancelPress();}}
         onPointerUp={releasePress} onPointerCancel={releasePress}
         onContextMenu={event=>{if(held.current||now()-pressedAt.current<1500){event.preventDefault();return;}if((event.target as HTMLElement).closest('a,img,textarea'))return;event.preventDefault();openMenu(message,event.clientX,event.clientY);}}
         onClickCapture={event=>{if(now()-pressedAt.current<700){event.preventDefault();event.stopPropagation();}}}>
-        {grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span>{options&&<div className="continuation-options">{options}</div>}</>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{gifId(message.reply.text || '') ? 'GIF do GIPHY' : message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{gifId(message.text) ? <GiphyMessage id={gifId(message.text)!} reducedMotion={reducedMotion}/> : message.text&&<p>{markedText(message.text)}</p>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}{message.pending==='failed'&&<div className="message-failed" role="alert">Não enviada.<button type="button" onClick={()=>{setError('');void deliver(message);}}>Tentar de novo</button><button type="button" onClick={()=>setMessages(previous=>previous.filter(item=>item.clientId!==message.clientId))}>Descartar</button></div>}</div></article>;})}<div ref={bottom}/>
+        {grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span>{options&&<div className="continuation-options">{options}</div>}</>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{gifId(message.reply.text || '') ? 'GIF do GIPHY' : message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{gifId(message.text) ? <GiphyMessage id={gifId(message.text)!} reducedMotion={reducedMotion}/> : message.text&&<LinkedMessage text={message.text} showCard={message.linkPreview} mark={markedText}/>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}{message.pending==='failed'&&<div className="message-failed" role="alert">Não enviada.<button type="button" onClick={()=>{setError('');void deliver(message);}}>Tentar de novo</button><button type="button" onClick={()=>setMessages(previous=>previous.filter(item=>item.clientId!==message.clientId))}>Descartar</button></div>}</div></article>;})}<div ref={bottom}/>
     </div>
     <div className="public-compose">{replyTo&&<div className="reply-compose"><span>Respondendo a <strong>{displayName(replyTo.user_id,replyTo.name)}</strong><small>{gifId(replyTo.text) ? 'GIF do GIPHY' : replyTo.text || 'Arquivo ou imagem'}</small></span><button type="button" className="button subtle" onClick={()=>setReplyTo(null)} aria-label="Cancelar resposta">×</button></div>}{suggestions.length>0&&<div className="mention-suggestions" id={inputId+"-mentions"} role="listbox" aria-label="Pessoas para mencionar">{suggestions.map((person,index)=><button key={person.id} type="button" role="option" aria-selected={index===Math.min(suggestionIndex,suggestions.length-1)} onPointerDown={event=>event.preventDefault()} onClick={()=>insertMention(person)}>{person.avatarUrl?<img className="member-avatar" src={person.avatarUrl} alt=""/>:<span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span>{person.name}</span></button>)}</div>}<p className="chat-sync" role="status">{sending?progress:status==='Histórico salvo'?'':status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
+      {firstLink && <div className="compose-link-preview"><label><input type="checkbox" checked={linkPreview} disabled={sending}
+        onChange={event=>setPreviewHref(event.target.checked ? firstLink : '')}/>Incluir prévia de {new URL(firstLink).hostname}</label>
+        {linkPreview && <LinkCard key={firstLink} href={firstLink}/>}</div>}
       <form onSubmit={send} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files));}}><label className="sr-only" htmlFor={inputId}>{compact?'Mensagem para a call '+title:'Mensagem para '+title}</label><textarea ref={textarea} id={inputId} aria-autocomplete="list" aria-controls={suggestions.length?inputId+"-mentions":undefined} value={draft} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDraft(event.target.value);setCaret(event.target.selectionStart);setDismissedAt(-1);setSuggestionIndex(0);}} maxLength={2000} placeholder={compact?'Mensagem nesta call…':'Manda a boa no '+title+'…'} rows={compact?2:1} disabled={sending&&files.length>0} onPaste={pasted} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(suggestions.length){if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(current+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length);return;}if(event.key==='Escape'){event.preventDefault();setDismissedAt(caret);return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();insertMention(suggestions[Math.min(suggestionIndex,suggestions.length-1)]);return;}}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/><button className="button primary" disabled={sending||(!draft.trim()&&!files.length)} type="submit" aria-label={compact?'Enviar mensagem na call':'Enviar mensagem'}>{sending?'…':'Enviar'}</button></form>
       <div className="compose-extras"><input ref={fileInput} type="file"  multiple hidden onChange={event=>{addFiles(Array.from(event.target.files||[]));event.target.value='';}}/><button type="button" className="attach-button" disabled={sending||files.length>=4} onClick={()=>fileInput.current?.click()} aria-label="Anexar arquivo"><ClipIcon/>Anexar arquivo</button><button type="button" className="attach-button gif-button" disabled={sending||sendingGif} onClick={()=>setGifOpen(true)} aria-label="Enviar GIF da biblioteca" aria-haspopup="dialog"><span className="gif-button-badge" aria-hidden="true">GIF</span></button><small>Até {limitMb} MB por arquivo · cole ou arraste aqui</small></div>{error&&<p className="error-message" role="alert">{error}</p>}
     </div>

@@ -1,3 +1,4 @@
+import { registerLinkPreviews } from './link-preview.js';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
@@ -14,7 +15,7 @@ import { createMediaCache } from './media-cache.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
-export const HEALTH_VERSION = 32;
+export const HEALTH_VERSION = 33;
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const MAX_GENERAL_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_PIXELS = 20_000_000;
@@ -54,6 +55,18 @@ function uploadName(value) {
 function dispositionName(name) {
   return encodeURIComponent(name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
 }
+// Rich messages share the existing text column, as do GIPHY messages. The API
+// always exposes the original text, including for quotes and idempotent retries.
+const cardPrefix = '[[pg:link-card:v1]]\n', literalPrefix = '[[pg:literal:v1]]\n';
+function storeText(text, card) {
+  if (card) return cardPrefix + text;
+  return text.startsWith(cardPrefix) || text.startsWith(literalPrefix) ? literalPrefix + text : text;
+}
+function readText(text) {
+  if (text.startsWith(cardPrefix)) return {text:text.slice(cardPrefix.length),linkPreview:true};
+  return {text:text.startsWith(literalPrefix) ? text.slice(literalPrefix.length) : text};
+}
+
 export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
@@ -97,7 +110,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     const replyIds=[...new Set(messages.map(message=>message.reply_to_id).filter(id=>id!=null))];
     const replies=replyIds.length?await db.prepare(`SELECT id,name,text,user_id,deleted_at FROM messages WHERE id IN (${replyIds.map(()=>'?').join(',')})`).all(...replyIds):[];
     const byId=new Map(replies.map(reply=>[reply.id,reply]));
-    return messages.map(message=>{const reply=byId.get(message.reply_to_id);return {...message,reply:reply?(reply.deleted_at?{id:reply.id,deleted:true}:{id:reply.id,name:reply.name,text:reply.text,user_id:reply.user_id,deleted:false}):null,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]};});
+    return messages.map(message=>{const reply=byId.get(message.reply_to_id);return {...message,...readText(message.text),reply:reply?(reply.deleted_at?{id:reply.id,deleted:true}:{id:reply.id,name:reply.name,text:readText(reply.text).text,user_id:reply.user_id,deleted:false}):null,canDelete:user.role==='admin'||message.user_id===user.id,attachments:grouped.get(message.id)||[]};});
   }
   const cleanAbandoned = async () => (await db.prepare(`DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)${appearance ? ' AND id NOT IN (SELECT banner_id FROM profiles WHERE banner_id IS NOT NULL)' : ''}`).run(Date.now()-86400000));
   const app = Fastify({ logger, bodyLimit: 16384, trustProxy });
@@ -255,6 +268,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     });
   }
   // A chave de integracao web e fornecida somente a contas autenticadas; o navegador fala diretamente com o GIPHY.
+  registerLinkPreviews(app);
   app.get('/gifs/config', {config:{rateLimit:{max:60,timeWindow:'1 minute'}}}, async (_request,reply) => {
     reply.header('Cache-Control','no-store');
     if(!gifApiKey)return reply.code(503).send({error:'A biblioteca de GIFs ainda não foi configurada no servidor.'});
@@ -424,13 +438,15 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     return {messages:await serializeMessages(rows.slice(0,100).reverse(),request.user),hasMore:rows.length>100,cursor:eventCursor};
   });
   app.post('/messages', async (request,reply) => {
-    const {text='',clientId,channel='general',attachmentIds=[],replyTo=null}=request.body??{};
+    const {text='',clientId,channel='general',attachmentIds=[],replyTo=null,linkPreview=false}=request.body??{};
     const name=request.user.username;
     if((replyTo!==null&&(!Number.isSafeInteger(replyTo)||replyTo<=0))||typeof text!=='string'||text.trim().length>2000||typeof clientId!=='string'||!UUID.test(clientId)||!(await accounts.conversationExists(channel))||!Array.isArray(attachmentIds)||attachmentIds.length>4||new Set(attachmentIds).size!==attachmentIds.length||attachmentIds.some(id=>typeof id!=='string'||!UUID.test(id))||(!text.trim()&&!attachmentIds.length))return reply.code(400).send({error:'Escreva uma mensagem ou anexe até quatro imagens/GIFs.'});
+    if(typeof linkPreview!=='boolean') return reply.code(400).send({error:'Formato de prévia inválido.'});
+    const storedText=storeText(text.trim(),linkPreview);
     const findPrevious=()=>db.prepare('SELECT id,name,text,timestamp,channel,user_id,deleted_at,reply_to_id FROM messages WHERE client_id=?').get(clientId);
     async function retry(previous) {
       const previousIds=(await messageMedia.all(previous.id)).map(media=>media.id);
-      if(previous.user_id!==request.user.id||previous.deleted_at||previous.text!==text.trim()||previous.channel!==channel||(previous.reply_to_id??null)!==replyTo||JSON.stringify(previousIds)!==JSON.stringify(attachmentIds))return reply.code(409).send({error:'Identificador de mensagem já utilizado.'});
+      if(previous.user_id!==request.user.id||previous.deleted_at||previous.text!==storedText||previous.channel!==channel||(previous.reply_to_id??null)!==replyTo||JSON.stringify(previousIds)!==JSON.stringify(attachmentIds))return reply.code(409).send({error:'Identificador de mensagem já utilizado.'});
       return serializeMessage(previous,request.user);
     }
     const previous=await findPrevious();
@@ -446,7 +462,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     try { await db.transaction(async()=>{
       await db.lock('channel-delete:'+channel);
       if(!(await accounts.conversationExists(channel))){const error=new Error('Canal removido');error.code='CHANNEL_REMOVED';throw error;}
-      const result=(await db.prepare('INSERT INTO messages(client_id,name,text,timestamp,channel,user_id,reply_to_id) VALUES(?,?,?,?,?,?,?)').run(clientId,name,text.trim(),timestamp,channel,request.user.id,replyTo));messageId=Number(result.lastInsertRowid);
+      const result=(await db.prepare('INSERT INTO messages(client_id,name,text,timestamp,channel,user_id,reply_to_id) VALUES(?,?,?,?,?,?,?)').run(clientId,name,storedText,timestamp,channel,request.user.id,replyTo));messageId=Number(result.lastInsertRowid);
       (await db.prepare("INSERT INTO message_events(message_id,channel,kind) VALUES(?,?,'created')").run(messageId,channel));
       const attach=db.prepare('INSERT INTO message_attachments(message_id,attachment_id,position) VALUES(?,?,?)');
       for (const [index,id] of attachmentIds.entries()) await attach.run(messageId,id,index);
@@ -458,7 +474,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       throw error;
     }
     activity.record('message-send',{actor:request.user.username,channel});
-    return reply.code(201).send(await serializeMessage({id:messageId,name,text:text.trim(),timestamp,channel,user_id:request.user.id,reply_to_id:replyTo},request.user));
+    return reply.code(201).send(await serializeMessage({id:messageId,name,text:storedText,timestamp,channel,user_id:request.user.id,reply_to_id:replyTo},request.user));
   });
   app.delete('/messages/:id',async(request,reply)=>{
     const id=Number(request.params.id);

@@ -15,10 +15,12 @@
     "@livekit/components-react": "^2.9.25",
     "@livekit/components-styles": "^1.2.0",
     "@sapphi-red/web-noise-suppressor": "0.4.1",
+    "linkify-it": "6.1.0",
     "livekit-client": "^2.23.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "sortablejs": "1.15.7"
+    "sortablejs": "1.15.7",
+    "tlds": "1.261.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,3 +1,4 @@
+import { extractCard, publicAddress } from './link-preview.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, rmdirSync } from 'node:fs';
@@ -800,4 +801,31 @@ test('somente administradores concedem a insígnia de Membro Fundador', async ()
     assert.equal((await app.inject('/presence')).json().profiles.find(item=>item.id===member.id).active,false);
     assert.deepEqual((await app.inject('/presence')).json().profiles[0].badges,[]);
   } finally { await app.close(); }
+});
+
+test('prévia extrai metadados públicos e aceita notícia sem imagem',()=>{
+  const html='<html><head><title>Título alternativo</title><meta content="Sol &amp; chuva" property="og:title"><meta name="description" content="Notícia do dia"><meta property="og:image" content="/foto.jpg"></head></html>';
+  assert.deepEqual(extractCard(html,'https://example.org/a'),{title:'Sol & chuva',description:'Notícia do dia',image:'https://example.org/foto.jpg'});
+  assert.equal(extractCard('<title>Sem capa</title>','https://example.org').image,undefined);
+  for(const address of ['127.0.0.1','10.0.0.5','169.254.169.254','192.168.1.20','::1','::ffff:127.0.0.1','168.63.129.16']) assert.equal(publicAddress(address),false);
+  assert.equal(publicAddress('8.8.8.8'),true);
+});
+test('escolha da prévia sobrevive ao histórico, às respostas e ao reenvio',async()=>{
+  const app=await createApp({...options,dbPath:':memory:'});
+  try {
+    for(const channel of ['general','voice:geral']){
+      const payload={channel,clientId:randomUUID(),text:'Leia https://example.org/noticia',linkPreview:true};
+      const post=body=>app.inject({method:'POST',url:'/messages',payload:body});
+      const first=await post(payload);
+      assert.equal(first.statusCode,201);assert.equal(first.json().linkPreview,true);assert.equal(first.json().text,payload.text);
+      assert.equal((await post(payload)).json().id,first.json().id);
+      assert.equal((await post({...payload,linkPreview:false})).statusCode,409);
+      const reply=await post({...payload,clientId:randomUUID(),linkPreview:false,replyTo:first.json().id});
+      assert.equal(reply.json().reply.text,payload.text);assert(!reply.json().linkPreview);
+      const history=(await app.inject({url:'/messages?channel='+channel})).json().messages;
+      assert.equal(history.find(m=>m.id===first.json().id).linkPreview,true);
+    }
+    const blocked=await app.inject({method:'POST',url:'/link-preview',payload:{url:'http://127.0.0.1/'}});
+    assert.deepEqual(blocked.json(),{});
+  } finally {await app.close();}
 });

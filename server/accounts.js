@@ -330,10 +330,23 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     (await db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id));recordEvent('user-update',{actor:request.user.username});return {ok:true};
   });
   app.get('/channels', async () => ({ text:(await db.prepare("SELECT * FROM channels WHERE kind='text' ORDER BY position,rowid").all()),voice:(await db.prepare("SELECT * FROM channels WHERE kind='voice' ORDER BY position,rowid").all()) }));
+  // Consultas frequentes de leitura (chat e menções) sabem se a conversa existe sem ir ao banco por até 5 s.
+  // Criar ou apagar canal limpa o cache; quem grava mensagens continua conferindo no banco, dentro da transação.
+  const existsCache=new Map();
+  const conversationExists=async id => typeof id==='string' && (id.startsWith('voice:') ? Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id.slice(6)))) : Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='text'").get(id))));
+  async function conversationExistsCached(id) {
+    if(typeof id!=='string'||id.length>120)return false;
+    const cached=existsCache.get(id);
+    if(cached&&Date.now()-cached.at<5000)return cached.exists;
+    const exists=await conversationExists(id);
+    if(existsCache.size>500)existsCache.clear();
+    existsCache.set(id,{exists,at:Date.now()});
+    return exists;
+  }
   app.post('/admin/channels', async (request,reply) => {
     const {name,kind,hint=''}=request.body??{};
     if (!validName(name) || !['text','voice'].includes(kind) || typeof hint!=='string' || hint.length>120) return fail(reply,400,'Confira nome, tipo e descrição do canal.');
-    const id=randomUUID(); (await db.prepare('INSERT INTO channels(id,kind,name,hint,position) VALUES(?,?,?,?,?)').run(id,kind,name.trim(),hint.trim(),Date.now()));recordEvent('channel-create',{actor:request.user.username,channel:name.trim()});return reply.code(201).send({id});
+    const id=randomUUID(); (await db.prepare('INSERT INTO channels(id,kind,name,hint,position) VALUES(?,?,?,?,?)').run(id,kind,name.trim(),hint.trim(),Date.now()));existsCache.clear();recordEvent('channel-create',{actor:request.user.username,channel:name.trim()});return reply.code(201).send({id});
   });
   app.patch('/admin/channels/:kind/:id', async (request,reply) => {
     const {name,hint=''}=request.body??{};
@@ -362,6 +375,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
       await db.prepare('DELETE FROM messages WHERE channel=?').run(id);
       await db.prepare('DELETE FROM channels WHERE id=? AND kind=?').run(id,kind);return 200;
     });
+    existsCache.clear();
     if(result===404)return fail(reply,404,'Canal não encontrado.');
     if(result===409)return fail(reply,409,'É necessário manter pelo menos um canal de texto.');
     recordEvent('channel-update',{actor:request.user.username,channel:'canal de texto removido'});return {ok:true};
@@ -386,6 +400,7 @@ export async function installAccounts(app, db, { ownerSetupToken, ownerSetupExpi
     authCreatedAt,
     usesSupabase:Boolean(authProvider), founderChecked,
     voiceExists: async id => Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id))),
-    conversationExists: async id => typeof id==='string' && (id.startsWith('voice:') ? Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='voice'").get(id.slice(6)))) : Boolean((await db.prepare("SELECT 1 FROM channels WHERE id=? AND kind='text'").get(id)))),
+    conversationExists,
+    conversationExistsCached,
   };
 }

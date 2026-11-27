@@ -12,6 +12,7 @@ import { normalizeSoundboardWav, validSoundboardWav } from './soundboard-audio.j
 import { createActivityLog } from './activity-log.js';
 import { installMusic } from './music.js';
 import { createMediaCache } from './media-cache.js';
+import { createPinStore, MAX_PINS_PER_CHANNEL } from './pins.js';
 
 export const VOICE_CHANNELS = [{ id: 'geral', name: 'Geral' }, { id: 'jogatina', name: 'Jogatina' }];
 export const MESSAGE_CHANNELS = ['general', 'voice:geral', 'voice:jogatina'];
@@ -67,7 +68,7 @@ function readText(text) {
   return {text:text.startsWith(literalPrefix) ? text.slice(literalPrefix.length) : text};
 }
 
-export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
+export async function createApp({ dbPath, databaseUrl, certificatePath, schema, apiKey, apiSecret, serverUrl, internalServerUrl = serverUrl, logger = true, activityLogPath, pinsPath, maxMediaStorageBytes = 512 * 1024 * 1024, ownerSetupToken, ownerSetupExpiresAt, secureCookies = true, allowedOrigins = ['http://localhost:5173', 'https://' + new URL(serverUrl).hostname], trustProxy = false, requireExistingOwner = false, musicMaxRooms = Infinity, authProvider, onOwnerReady, startupCleanup = true, gifApiKey, roomService = new RoomServiceClient(internalServerUrl.replace(/^ws/, 'http'), apiKey, apiSecret, { requestTimeout: 3 }) }) {
   if (!databaseUrl && dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = databaseUrl ? postgresDatabase(databaseUrl,certificatePath,schema) : sqliteDatabase(dbPath);
   if(requireExistingOwner) {
@@ -115,6 +116,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
   const cleanAbandoned = async () => (await db.prepare(`DELETE FROM attachments WHERE created_at < ? AND id NOT IN (SELECT attachment_id FROM message_attachments) AND id NOT IN (SELECT avatar_id FROM profiles WHERE avatar_id IS NOT NULL)${appearance ? ' AND id NOT IN (SELECT banner_id FROM profiles WHERE banner_id IS NOT NULL)' : ''}`).run(Date.now()-86400000));
   const app = Fastify({ logger, bodyLimit: 16384, trustProxy });
   const activity=createActivityLog(activityLogPath);
+  const pins=createPinStore(pinsPath);
   app.addHook('onReady',async()=>activity.record('server-start'));
   app.addHook('onResponse',async(request,reply)=>{if(reply.statusCode>=500)activity.record('server-error',{route:request.routeOptions.url,status:reply.statusCode});});
   app.addHook('onClose',async()=>activity.record('server-stop'));
@@ -417,13 +419,28 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     activity.record('user-update',{actor:request.user.username});
     return {ok:true};
   });
+  // Último evento de cada conversa em memória. A maior parte das consultas periódicas (chat a cada 2 s,
+  // menções a cada 6 s) não tem novidade: com o cursor em dia, a resposta sai sem consultar o banco.
+  // Enviar ou excluir mensagem invalida na hora; o limite de 10 s cobre gravações feitas fora deste processo.
+  const latestEvents=new Map();let eventGeneration=0;
+  async function latestEvent(channel) {
+    const cached=latestEvents.get(channel);
+    if(cached&&Date.now()-cached.at<10000)return cached.seq;
+    const generation=eventGeneration;
+    const seq=Number((await db.prepare('SELECT COALESCE(MAX(seq),0) AS cursor FROM message_events WHERE channel=?').get(channel)).cursor);
+    // Uma gravação no meio da consulta deixa o valor velho: nesse caso não guarda.
+    if(generation===eventGeneration){if(latestEvents.size>500)latestEvents.clear();latestEvents.set(channel,{seq,at:Date.now()});}
+    return seq;
+  }
+  const eventsChanged=channel=>{eventGeneration++;latestEvents.delete(channel);};
   app.get('/messages', async (request,reply) => {
     reply.header('Cache-Control','no-store');
     const {after,before,since,channel='general'}=request.query;
-    if(!(await accounts.conversationExists(channel)))return reply.code(400).send({error:'Conversa inválida.'});
-    const eventCursor=(await db.prepare('SELECT COALESCE(MAX(seq),0) AS cursor FROM message_events WHERE channel=?').get(channel)).cursor;
+    if(!(await accounts.conversationExistsCached(channel)))return reply.code(400).send({error:'Conversa inválida.'});
+    if(since!==undefined&&(!/^\d+$/.test(since)||!Number.isSafeInteger(Number(since))))return reply.code(400).send({error:'Página inválida.'});
+    const eventCursor=await latestEvent(channel);
     if(since!==undefined){
-      if(!/^\d+$/.test(since)||!Number.isSafeInteger(Number(since)))return reply.code(400).send({error:'Página inválida.'});
+      if(Number(since)>=eventCursor)return {messages:[],deletedIds:[],cursor:eventCursor};
       const events=(await db.prepare('SELECT * FROM message_events WHERE channel=? AND seq>? ORDER BY seq LIMIT 200').all(channel,Number(since)));
       const ids=events.filter(e=>e.kind==='created').map(e=>e.message_id);
       const rows=ids.length?await db.prepare(`SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE id IN (${ids.map(()=>'?').join(',')}) AND deleted_at IS NULL`).all(...ids):[];
@@ -473,6 +490,7 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
       if(error.code==='23505'||[19,1555,2067].includes(error.errcode))return reply.code(409).send({error:'Um dos anexos já foi publicado. Selecione o arquivo novamente.'});
       throw error;
     }
+    eventsChanged(channel);
     activity.record('message-send',{actor:request.user.username,channel});
     return reply.code(201).send(await serializeMessage({id:messageId,name,text:storedText,timestamp,channel,user_id:request.user.id,reply_to_id:replyTo},request.user));
   });
@@ -495,7 +513,44 @@ export async function createApp({ dbPath, databaseUrl, certificatePath, schema, 
     });
     if(result===404)return reply.code(404).send({error:'Mensagem não encontrada.'});
     if(result===403)return reply.code(403).send({error:'Você só pode excluir suas próprias mensagens.'});
+    eventsChanged(result.channel);
+    pins.remove(id);
     activity.record('message-delete',{actor:request.user.username,channel:result.channel});
+    return {ok:true,id};
+  });
+  // Mensagens fixadas: referências guardadas em arquivo (server/data/pins.json); o conteúdo vem da mensagem.
+  app.get('/pins', async (request,reply) => {
+    reply.header('Cache-Control','no-store');
+    const channel=request.query.channel;
+    if(typeof channel!=='string'||!(await accounts.conversationExistsCached(channel)))return reply.code(400).send({error:'Conversa inválida.'});
+    const list=pins.list(channel);
+    if(!list.length)return {pins:[],max:MAX_PINS_PER_CHANNEL};
+    const ids=list.map(pin=>pin.id);
+    const rows=await db.prepare(`SELECT id,name,text,timestamp,channel,user_id,reply_to_id FROM messages WHERE id IN (${ids.map(()=>'?').join(',')}) AND channel=? AND deleted_at IS NULL`).all(...ids,channel);
+    pins.keepOnly(channel,new Set(rows.map(row=>row.id)));
+    const messages=new Map((await serializeMessages(rows,request.user)).map(message=>[message.id,message]));
+    const pinners=[...new Set(list.map(pin=>pin.pinnedBy))];
+    const names=new Map((await db.prepare(`SELECT id,username FROM users WHERE id IN (${pinners.map(()=>'?').join(',')})`).all(...pinners)).map(user=>[user.id,user.username]));
+    return {max:MAX_PINS_PER_CHANNEL,pins:list.filter(pin=>messages.has(pin.id)).map(pin=>{const message=messages.get(pin.id);return {message,pinnedAt:pin.pinnedAt,pinnedBy:names.get(pin.pinnedBy)??null,canUnpin:request.user.role==='admin'||pin.pinnedBy===request.user.id||message.user_id===request.user.id};})};
+  });
+  app.post('/messages/:id/pin', async (request,reply) => {
+    const id=Number(request.params.id);
+    if(!Number.isSafeInteger(id)||id<=0)return reply.code(404).send({error:'Mensagem não encontrada.'});
+    const message=await db.prepare('SELECT id,channel FROM messages WHERE id=? AND deleted_at IS NULL').get(id);
+    if(!message||!(await accounts.conversationExists(message.channel)))return reply.code(404).send({error:'Mensagem não encontrada.'});
+    const result=pins.add(message.channel,id,request.user.id);
+    if(result==='full')return reply.code(409).send({error:`Este canal já tem ${MAX_PINS_PER_CHANNEL} mensagens fixadas. Desafixe alguma antes de fixar outra.`});
+    if(result==='added')activity.record('message-pin',{actor:request.user.username,channel:message.channel});
+    return {ok:true,id,channel:message.channel};
+  });
+  app.delete('/messages/:id/pin', async (request,reply) => {
+    const id=Number(request.params.id);
+    const pin=Number.isSafeInteger(id)?pins.find(id):null;
+    if(!pin)return reply.code(404).send({error:'Esta mensagem não está fixada.'});
+    const message=await db.prepare('SELECT user_id FROM messages WHERE id=?').get(id);
+    if(request.user.role!=='admin'&&pin.pinnedBy!==request.user.id&&message?.user_id!==request.user.id)return reply.code(403).send({error:'Só quem fixou, o autor da mensagem ou um administrador pode desafixar.'});
+    pins.remove(id);
+    activity.record('message-unpin',{actor:request.user.username,channel:pin.channel});
     return {ok:true,id};
   });
   return app;

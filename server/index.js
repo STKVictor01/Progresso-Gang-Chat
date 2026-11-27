@@ -28,6 +28,7 @@ const app = await createApp({
   musicMaxRooms: runtime.musicMaxRooms,
   authProvider: runtime.supabaseAuth ? createSupabaseAuth(runtime.supabaseAuth) : undefined,
   activityLogPath: fileURLToPath(new URL('./logs/activity.jsonl', import.meta.url)),
+  pinsPath: fileURLToPath(new URL('./data/pins.json', import.meta.url)),
   apiKey: process.env.LIVEKIT_API_KEY,
   apiSecret: process.env.LIVEKIT_API_SECRET,
   serverUrl: process.env.LIVEKIT_URL,

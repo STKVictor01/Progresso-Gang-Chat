@@ -13,6 +13,7 @@ import { gifId, gifMessage } from './giphy';
 import { LinkCard } from './link-card';
 import { formattedPaste, messageLinks } from './message-links';
 import { chatPollDelay } from './polling';
+import { PinIcon, PinnedBar, PinnedDialog, usePins } from './pinned-messages';
 
 type Attachment = { id: string; url: string; posterUrl?: string; mime: string; width: number; height: number; size: number; animated: boolean; filename?: string };
 type Reply = {id:number;name?:string;text?:string;user_id?:string|null;deleted:boolean};
@@ -99,10 +100,17 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   const [status, setStatus] = useState('Carregando conversa…');
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Mensagem original destacada ao clicar numa resposta.
+  const [highlighted, setHighlighted] = useState<number|null>(null);
+  const highlightTimer = useRef<number|undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
   const [viewer, setViewer] = useState<{source: string; attachment: Attachment} | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [sendingGif, setSendingGif] = useState(false);
   const [menu, setMenu] = useState<{message: TextMessage; x: number; y: number} | null>(null);
+  // Mensagens fixadas do canal (barra no topo, lista e opção no menu da mensagem).
+  const pinned = usePins(channel, visible);
+  const [pinsOpen, setPinsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const press = useRef<{timer: number; x: number; y: number} | null>(null);
   const held = useRef<{message: TextMessage; x: number; y: number} | null>(null);
@@ -275,6 +283,40 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
     }catch(cause){setGifOpen(false);setError(cause instanceof Error && cause.name==='Error'?cause.message:'A conexão falhou ao enviar o GIF. Tente novamente.');}
     finally{setSendingGif(false);}
   }
+  // Leva até a mensagem respondida e a destaca. Se ela ainda não foi carregada, busca o histórico até encontrá-la.
+  async function jumpToMessage(id:number) {
+    const find = () => scroller.current?.querySelector<HTMLElement>('#message-'+id) ?? null;
+    let target = find();
+    if (!target) {
+      let first = messages.find(message=>!message.pending), more = hasMore, found = false, pages = 0;
+      setLoadingOlder(true); setError('');
+      try {
+        while (!found && first && more && pages < 10) {
+          const query=new URLSearchParams({channel,before:String(first.id)});
+          const response=await api('/api/messages?'+query); if(!response.ok) throw Error('Histórico indisponível');
+          const data=await response.json() as {messages:TextMessage[];hasMore:boolean};
+          atBottom.current=false; setMessages(previous=>ordered(dedupe([...data.messages,...previous]))); setHasMore(data.hasMore);
+          found = data.messages.some(message=>message.id===id); more = data.hasMore; first = data.messages[0] ?? first; pages++;
+          if (!data.messages.length) break;
+        }
+      } catch { setError('Não foi possível carregar a mensagem original. Tente novamente.'); return; }
+      finally { setLoadingOlder(false); }
+      if (!found) { setError('A mensagem original não está mais disponível.'); return; }
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      target = find();
+    }
+    if (!target) { setError('A mensagem original não está mais disponível.'); return; }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({behavior:reduced?'auto':'smooth',block:'center'});
+    target.focus({preventScroll:true});
+    setHighlighted(id); window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlighted(current => current===id ? null : current), 2600);
+  }
+  async function togglePin(message:TextMessage, pin:boolean) {
+    setError('');
+    try { if (pin) await pinned.pin(message.id); else await pinned.unpin(message.id); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível alterar a mensagem fixada.'); }
+  }
   async function older() {
     const first=messages.find(message=>!message.pending);if(!first||loadingOlder)return;setLoadingOlder(true);setError('');const previousHeight=scroller.current?.scrollHeight??0;
     try{const query=new URLSearchParams({channel,before:String(first.id)});const response=await api('/api/messages?'+query);if(!response.ok)throw Error('Histórico indisponível');const data=await response.json() as {messages:TextMessage[];hasMore:boolean};atBottom.current=false;setMessages(previous=>ordered(dedupe([...data.messages,...previous])));setHasMore(data.hasMore);requestAnimationFrame(()=>{if(scroller.current)scroller.current.scrollTop+=scroller.current.scrollHeight-previousHeight;});}
@@ -287,16 +329,18 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
   }
   return <section className={'public-chat channel-chat '+(compact?'compact-chat':'')} hidden={!visible} aria-label={compact?'Chat da call '+title:'Chat '+title}>
     {compact && <div className="text-chat-heading"><div className="call-chat-title"><h2>Chat · {title}</h2><button className="icon-button" onClick={onClose} aria-label="Fechar chat da call">×</button></div><p>Conversa deste canal, separada do #geral.</p></div>}
+    <PinnedBar pins={pinned.pins} onOpen={()=>{setPinsOpen(true);void pinned.refresh().catch(()=>{});}} name={message=>displayName(message.user_id,message.name)} style={message=>nameStyle(message.user_id)}/>
+    {pinsOpen&&<PinnedDialog pins={pinned.pins} onClose={()=>setPinsOpen(false)} onJump={id=>void jumpToMessage(id)} onUnpin={id=>pinned.unpin(id)} name={message=>displayName(message.user_id,message.name)} style={message=>nameStyle(message.user_id)}/>}
     <div className="public-messages" ref={scroller} onScroll={()=>{const element=scroller.current;if(element)atBottom.current=element.scrollHeight-element.scrollTop-element.clientHeight<100;}} role="log" aria-label={compact?'Mensagens da call '+title:'Mensagens do canal geral'} aria-live="polite">
       {hasMore&&<button className="button subtle load-history" disabled={loadingOlder} onClick={older}>{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
       {!messages.length&&<div className="public-chat-empty"><h2>{compact?'O papo desta call começa aqui.':'A resenha começa aqui.'}</h2><p>Mande um salve, uma imagem ou um GIF.</p></div>}
-      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(message.user_id!==user.id&&hasMention(message.text,user.name)?' mentions-me':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
+      {messages.map((message,index)=>{const grouped=continuesGroup(messages[index-1],message);const time=new Date(message.timestamp);const options=message.pending?null:<MessageOptionsButton message={message} onOpen={(x,y)=>openMenu(message,x,y)} />;return <article id={"message-"+message.id} tabIndex={-1} key={message.clientId || message.id} className={'public-message'+(grouped?' is-continuation':'')+(highlighted===message.id?' is-reply-target':'')+(message.user_id!==user.id&&hasMention(message.text,user.name)?' mentions-me':'')+(message.pending?' is-'+message.pending:'')+(menu?.message.id===message.id||heldId===message.id?' menu-open':'')}
         onPointerDown={event=>{if(event.pointerType!=='touch'||message.pending||(event.target as Element).closest('a'))return;cancelPress();const {clientX:x,clientY:y}=event;press.current={x,y,timer:window.setTimeout(()=>{press.current=null;pressedAt.current=now();held.current={message,x:x-100,y:y+12};setHeldId(message.id);navigator.vibrate?.(12);},450)};}}
         onPointerMove={event=>{const start=press.current;if(start&&Math.hypot(event.clientX-start.x,event.clientY-start.y)>10)cancelPress();}}
         onPointerUp={releasePress} onPointerCancel={releasePress}
         onContextMenu={event=>{if(held.current||now()-pressedAt.current<1500){event.preventDefault();return;}if((event.target as HTMLElement).closest('a,img,textarea'))return;event.preventDefault();openMenu(message,event.clientX,event.clientY);}}
         onClickCapture={event=>{if(now()-pressedAt.current<700){event.preventDefault();event.stopPropagation();}}}>
-        {grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span>{options&&<div className="continuation-options">{options}</div>}</>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{message.reply&&<button type="button" className="reply-reference" onClick={()=>document.getElementById('message-'+message.reply?.id)?.scrollIntoView({behavior:'smooth',block:'center'})}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{gifId(message.reply.text || '') ? 'GIF do GIPHY' : message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{gifId(message.text) ? <GiphyMessage id={gifId(message.text)!} reducedMotion={reducedMotion}/> : message.text&&<LinkedMessage text={message.text} showCard={message.linkPreview} mark={markedText}/>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}{message.pending==='failed'&&<div className="message-failed" role="alert">Não enviada.<button type="button" onClick={()=>{setError('');void deliver(message);}}>Tentar de novo</button><button type="button" onClick={()=>setMessages(previous=>previous.filter(item=>item.clientId!==message.clientId))}>Descartar</button></div>}</div></article>;})}<div ref={bottom}/>
+        {grouped?<span className="message-gutter" aria-hidden="true">{time.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>:<MessageAvatar message={message}/>}<div className="message-body">{grouped?<><span className="sr-only">{displayName(message.user_id,message.name)}, {time.toLocaleString('pt-BR')}</span>{options&&<div className="continuation-options">{options}</div>}</>:<header><strong style={nameStyle(message.user_id)}>{displayName(message.user_id,message.name)}</strong><time dateTime={time.toISOString()}>{time.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>{options}</header>}{!message.pending&&pinned.find(message.id)&&<span className="message-pin-flag"><PinIcon size={12}/>Fixada</span>}{message.reply&&<button type="button" className="reply-reference" disabled={message.reply.deleted} title={message.reply.deleted?undefined:'Ir para a mensagem original'} onClick={()=>{if(message.reply&&!message.reply.deleted)void jumpToMessage(message.reply.id);}}>{message.reply.deleted?'Mensagem excluída':<><strong style={nameStyle(message.reply.user_id)}>{displayName(message.reply.user_id,message.reply.name || 'Participante')}</strong><span>{gifId(message.reply.text || '') ? 'GIF do GIPHY' : message.reply.text || 'Arquivo ou imagem'}</span></>}</button>}{gifId(message.text) ? <GiphyMessage id={gifId(message.text)!} reducedMotion={reducedMotion}/> : message.text&&<LinkedMessage text={message.text} showCard={message.linkPreview} mark={markedText}/>}{!!message.attachments?.length&&<div className="message-media">{message.attachments.map(attachment=>attachment.mime.startsWith('image/')?<ImageAttachment key={attachment.id} attachment={attachment} author={message.name} reducedMotion={reducedMotion} onOpen={(source,item)=>setViewer({source,attachment:item})}/>:<FileAttachment key={attachment.id} attachment={attachment}/>)}</div>}{message.pending==='failed'&&<div className="message-failed" role="alert">Não enviada.<button type="button" onClick={()=>{setError('');void deliver(message);}}>Tentar de novo</button><button type="button" onClick={()=>setMessages(previous=>previous.filter(item=>item.clientId!==message.clientId))}>Descartar</button></div>}</div></article>;})}<div ref={bottom}/>
     </div>
     <div className="public-compose">{replyTo&&<div className="reply-compose"><span>Respondendo a <strong>{displayName(replyTo.user_id,replyTo.name)}</strong><small>{gifId(replyTo.text) ? 'GIF do GIPHY' : replyTo.text || 'Arquivo ou imagem'}</small></span><button type="button" className="button subtle" onClick={()=>setReplyTo(null)} aria-label="Cancelar resposta">×</button></div>}{suggestions.length>0&&<div className="mention-suggestions" id={inputId+"-mentions"} role="listbox" aria-label="Pessoas para mencionar">{suggestions.map((person,index)=><button key={person.id} type="button" role="option" aria-selected={index===Math.min(suggestionIndex,suggestions.length-1)} onPointerDown={event=>event.preventDefault()} onClick={()=>insertMention(person)}>{person.avatarUrl?<img className="member-avatar" src={person.avatarUrl} alt=""/>:<span className="member-avatar">{person.name.slice(0,2).toLocaleUpperCase('pt-BR')}</span>}<span>{person.name}</span></button>)}</div>}<p className="chat-sync" role="status">{sending?progress:status==='Histórico salvo'?'':status}</p>{files.length>0&&<div className="pending-attachments" aria-label="Anexos antes do envio">{files.map(item=><div className="pending-attachment" key={item.id}>{item.preview?<img src={item.preview} alt={'Prévia de '+item.file.name}/>:<span className="pending-file-icon" aria-hidden="true"><ClipIcon/></span>}<span>{item.file.name}</span><button className="icon-button" disabled={sending} aria-label={'Remover anexo '+item.file.name} onClick={()=>removeFile(item.id)}>×</button></div>)}</div>}
       {firstLink && <div className="compose-link-preview"><label><input type="checkbox" checked={linkPreview} disabled={sending}
@@ -317,6 +361,7 @@ export function ChannelChat({ name, channel, title, compact = false, visible = t
       <div className="message-menu-preview" aria-hidden="true"><strong style={nameStyle(menu.message.user_id)}>{displayName(menu.message.user_id,menu.message.name)}</strong><span>{gifId(menu.message.text) ? 'GIF do GIPHY' : menu.message.text || 'Arquivo ou imagem'}</span></div>
       <div className="message-menu-actions">
         <button role="menuitem" onClick={()=>{const message=menu.message;menuRef.current?.hidePopover();setReplyTo(message);textarea.current?.focus();}}>Responder</button>
+        {!menu.message.pending&&(()=>{const current=pinned.find(menu.message.id);if(current&&!current.canUnpin)return null;return <button role="menuitem" onClick={()=>{const message=menu.message;menuRef.current?.hidePopover();void togglePin(message,!current);}}>{current?'Desafixar mensagem':'Fixar mensagem'}</button>;})()}
         {menu.message.text&&<button role="menuitem" onClick={()=>{const text=menu.message.text;menuRef.current?.hidePopover();void navigator.clipboard?.writeText(text).catch(()=>setError('Não foi possível copiar o texto.'));}}>Copiar texto</button>}
         {menu.message.canDelete&&<button role="menuitem" className="danger" onClick={()=>{const message=menu.message;menuRef.current?.hidePopover();void removeMessage(message);}}>Excluir mensagem</button>}
       </div></>}</div>,document.body)}

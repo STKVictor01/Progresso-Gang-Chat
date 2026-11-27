@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test app.test.js music.test.js supabase-auth.test.js security-lab.test.mjs",
+    "test": "node --test app.test.js pins.test.js read-cache.test.js music.test.js supabase-auth.test.js security-lab.test.mjs",
     "security:lab": "node security-lab.mjs",
     "test:postgres": "node --test postgres.test.js",
     "test:migration": "node --test migrate.test.js",

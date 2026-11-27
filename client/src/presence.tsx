@@ -8,6 +8,8 @@ import type { ProfileData } from './profile-card';
 import { AppearanceColors, BannerControls, prepareBanner } from './profile-appearance-editor';
 import { EntrySoundEditor } from './entry-sound';
 import { MenuButton } from './menu';
+
+const EDIT_PROFILE_EVENT = 'pg-edit-profile';
 import { groupMembers } from './member-groups';
 import { DEFAULT_CROP, paletteToTriple, tripleToPalette, validCrop } from './profile-appearance';
 import type { BannerCrop, ProfilePalette } from './profile-appearance';
@@ -66,12 +68,18 @@ export function PresenceProvider({children}:{children:ReactNode}) {
       try { const data = await jsonApi('/api/music-status'); if (active) setMusic(data.rooms && typeof data.rooms === 'object' ? data.rooms : {}); }
       catch { if (active) setMusic({}); }
     }
-    void updateVoice();
-    const timer = setInterval(() => void updateVoice(), 5000);
-    return () => { active = false; clearInterval(timer); };
+    // A cada 5 s com a aba visível; com a aba em segundo plano, a cada 20 s (atualiza na hora ao voltar).
+    let timer: number | undefined;
+    const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(async () => { await updateVoice(); if (active) schedule(); }, document.hidden ? 20000 : 5000); };
+    const returned = () => { if (!document.hidden && active) { void updateVoice(); schedule(); } };
+    void updateVoice(); schedule();
+    document.addEventListener('visibilitychange', returned);
+    return () => { active = false; window.clearTimeout(timer); document.removeEventListener('visibilitychange', returned); };
   }, []);
   const profile=profiles.find(person=>person.id===selected);
-  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile:setSelected,nameColors,statuses,appearance}}>
+  // Clicar no próprio cartão abre direto o editor de perfil (o do cabeçalho, que existe no computador e no celular).
+  const showProfile = (id:string|null) => { if (id && id === user.id) window.dispatchEvent(new Event(EDIT_PROFILE_EVENT)); else setSelected(id); };
+  return <PresenceContext.Provider value={{music,people,profiles,voiceChannels,refresh,showProfile,nameColors,statuses,appearance}}>
     {children}
     {profile && <dialog className="admin-dialog profile-dialog" ref={element=>{if(element&&!element.open)element.showModal();}}
       onCancel={event=>{if(event.target===event.currentTarget)setSelected(null);}} onClose={event=>{if(event.target===event.currentTarget)setSelected(null);}} aria-labelledby="profile-dialog-name">
@@ -138,6 +146,13 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
     refreshRequests();const timer=window.setInterval(refreshRequests,30000);window.addEventListener('pg-invite-requests-changed',refreshRequests);
     return()=>{active=false;window.clearInterval(timer);window.removeEventListener('pg-invite-requests-changed',refreshRequests);};
   },[variant,user.role]);
+  const openRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (variant !== 'avatar') return;
+    const edit = () => openRef.current();
+    window.addEventListener(EDIT_PROFILE_EVENT, edit);
+    return () => window.removeEventListener(EDIT_PROFILE_EVENT, edit);
+  }, [variant]);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => () => { if (bannerPreview) URL.revokeObjectURL(bannerPreview); }, [bannerPreview]);
   function resetAppearance() { setBannerFile(null); setBannerPreview(null); setRemoveBanner(false); setCrop(validCrop(own?.bannerCrop)); setMode(own?.appearanceMode==='custom' ? 'custom' : 'auto'); setCustom(tripleToPalette(own?.customColors)); setNewPalette(null); }
@@ -152,6 +167,7 @@ export function ProfileEditor({status,variant='card'}:{status?:string;variant?:'
   }
   const savedState = ():Baseline => ({name:user.name,status:own?.status || '',description:own?.description || '',color:own?.nameColor || '',crop:validCrop(own?.bannerCrop),mode:own?.appearanceMode==='custom' ? 'custom' : 'auto',custom:own?.customColors?.join() ?? ''});
   function open() { setName(user.name); setDescription(own?.description || ''); setColor(own?.nameColor || ''); setStatusText(own?.status || ''); setFile(null); setPreview(null); setRemoveAvatar(false); resetAppearance(); setError(''); setMessage(''); setBaseline(savedState()); setPreviewMode('card'); setBannerEditing(false); setAudioPending(false); setEditing(true); }
+  useEffect(() => { openRef.current = () => { if (own) open(); }; });
   function closeEditor() { setEditing(false); setFile(null); setPreview(null); setBannerFile(null); setBannerPreview(null); setRemoveAvatar(false); setRemoveBanner(false); setBannerEditing(false); setError(''); setMessage(''); }
   function choose(next:File|null) {
     setError('');
